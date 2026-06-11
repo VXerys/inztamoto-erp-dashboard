@@ -87,6 +87,9 @@ export default function InztamotoApp() {
             <a href="#" className="nav-item" data-page="produksi">
               <i className="fas fa-industry"></i>Produksi
             </a>
+            <a href="#" className="nav-item" data-page="belanjaProduksi">
+              <i className="fas fa-shopping-basket"></i>Belanja Produksi
+            </a>
             <a href="#" className="nav-item" data-page="inventaris">
               <i className="fas fa-boxes-stacked"></i>Stock Control
               <span className="badge-dot" id="criticalDot" style={{ display: 'none' }}></span>
@@ -306,6 +309,11 @@ export default function InztamotoApp() {
                   <div className="pagination" id="prodOrderPag"></div>
                 </div>
               </div>
+            </div>
+
+            {/* Belanja Produksi */}
+            <div className="page" id="pageBelanjaProduksi">
+              {/* Rendered dynamically by renderBelanjaProduksi() in app-runtime.js */}
             </div>
 
             {/* Inventaris */}

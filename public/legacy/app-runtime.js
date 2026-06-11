@@ -74,11 +74,13 @@ const state = {
   sales: [],
   production: [],
   stockMovements: [],
+  productionPurchases: [],
   users: [...DEMO_USERS],
   currentPage: 'dashboard',
   prod: { search: '', filter: 'all', catFilter: 'all', sort: { field: 'sku', dir: 'asc' }, page: 1, perPage: 8 },
   prodOrder: { search: '', filter: 'all', page: 1, perPage: 8 },
   sale: { search: '', channel: 'all', page: 1, perPage: 8 },
+  pp: { search: '', week: '', status: 'all', page: 1, perPage: 10 },
   charts: {},
   tempImageData: null,
   listeners: []
@@ -442,6 +444,12 @@ function initFirebaseListeners() {
   }, err => console.error('Stock movements listener error:', err));
   state.listeners.push(unsubSM);
 
+  const unsubPP = db.collection('production_purchases').orderBy('date', 'desc').onSnapshot(snap => {
+    state.productionPurchases = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (state.currentPage === 'belanjaProduksi') renderBelanjaProduksi();
+  }, err => console.error('Production purchases listener error:', err));
+  state.listeners.push(unsubPP);
+
   seedIfEmpty();
 }
 
@@ -453,6 +461,7 @@ function renderCurrentPage() {
     case 'inventaris': renderInventory(); break;
     case 'penjualan': renderSales(); break;
     case 'laporan': renderReports(); break;
+    case 'belanjaProduksi': renderBelanjaProduksi(); break;
   }
 }
 
@@ -511,7 +520,8 @@ async function seedIfEmpty() {
 const TITLES = {
   dashboard: 'Dashboard', produk: 'Produk', kategori: 'Kategori',
   produksi: 'Produksi', inventaris: 'Stock Control', penjualan: 'Penjualan',
-  laporan: 'Laporan', pengguna: 'Pengguna', pengaturan: 'Pengaturan'
+  laporan: 'Laporan', pengguna: 'Pengguna', pengaturan: 'Pengaturan',
+  belanjaProduksi: 'Belanja Produksi'
 };
 
 function navigateTo(page) {
@@ -1644,6 +1654,315 @@ window.saveSale = async function () {
 
 window.deleteSale = async function (id) {
   try { await db.collection('sales').doc(id).delete(); toast('Transaksi dihapus', 'success'); } catch (err) { toast('Gagal: ' + err.message, 'error'); }
+};
+
+/* =========================================================
+   BELANJA PRODUKSI — Phase 4A
+   ========================================================= */
+
+function getWeekKey(dateStr) {
+  const d = new Date(dateStr || today);
+  const year = d.getFullYear();
+  // ISO week number
+  const startOfYear = new Date(year, 0, 1);
+  const dayOfYear = Math.floor((d - startOfYear) / 86400000) + 1;
+  const weekNum = Math.ceil((dayOfYear + startOfYear.getDay()) / 7);
+  return year + '-W' + String(weekNum).padStart(2, '0');
+}
+
+function getAvailableWeeks() {
+  const weeks = new Set();
+  weeks.add(getWeekKey(today)); // always include current week
+  state.productionPurchases.forEach(p => { if (p.weekKey) weeks.add(p.weekKey); });
+  return [...weeks].sort().reverse();
+}
+
+function renderBelanjaProduksi() {
+  const container = $('#pageBelanjaProduksi');
+  if (!container) return;
+
+  const { search, week, status, page, perPage } = state.pp;
+  const selectedWeek = week || getWeekKey(today);
+
+  let list = [...state.productionPurchases];
+  if (search) {
+    const q = search.toLowerCase();
+    list = list.filter(p =>
+      (p.itemName   || '').toLowerCase().includes(q) ||
+      (p.category   || '').toLowerCase().includes(q) ||
+      (p.note       || '').toLowerCase().includes(q)
+    );
+  }
+  if (week) list = list.filter(p => p.weekKey === week);
+  if (status !== 'all') list = list.filter(p => p.status === status);
+
+  const weeklyTotal = state.productionPurchases
+    .filter(p => p.weekKey === selectedWeek)
+    .reduce((s, p) => s + (p.totalCost || 0), 0);
+
+  const total    = Math.max(1, Math.ceil(list.length / perPage));
+  if (page > total) state.pp.page = 1;
+  const start    = (state.pp.page - 1) * perPage;
+  const items    = list.slice(start, start + perPage);
+
+  const weekOpts = getAvailableWeeks()
+    .map(w => `<option value="${w}" ${w === week ? 'selected' : ''}>${w}</option>`).join('');
+
+  // ---- Toolbar ----
+  const toolbar = `
+    <div class="table-toolbar">
+      <div class="table-search"><i class="fas fa-search"></i><input type="text" id="ppSearch" class="form-input" placeholder="Cari barang..." value="${search}" oninput="onPPSearch(this.value)"></div>
+      <div class="table-filter">
+        <select class="form-input" onchange="onPPWeek(this.value)" style="min-width:130px">
+          <option value="">Semua Minggu</option>${weekOpts}
+        </select>
+      </div>
+      <div class="table-filter">
+        <select class="form-input" onchange="onPPStatus(this.value)">
+          <option value="all" ${status === 'all' ? 'selected' : ''}>Semua Status</option>
+          <option value="open" ${status === 'open' ? 'selected' : ''}>Open</option>
+          <option value="closed" ${status === 'closed' ? 'selected' : ''}>Closed</option>
+        </select>
+      </div>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+        <span style="font-size:13px;color:var(--text-muted)">Total ${selectedWeek}: <strong style="color:var(--text)">${fmtRp(weeklyTotal)}</strong></span>
+        <button class="btn btn-outline btn-sm" onclick="closeWeek('${selectedWeek}')"><i class="fas fa-lock"></i>Tutup Minggu</button>
+        <button class="btn btn-primary btn-sm" onclick="openAddPurchaseModal()"><i class="fas fa-plus"></i>Tambah Belanja</button>
+      </div>
+    </div>`;
+
+  // ---- Table rows ----
+  const rows = items.length
+    ? items.map(p => {
+        const isClosed = p.status === 'closed';
+        const statusBadgeStr = isClosed
+          ? `<span class="badge badge-inactive">Closed</span>`
+          : `<span class="badge badge-active">Open</span>`;
+        const actions = isClosed
+          ? `<span style="font-size:12px;color:var(--text-muted)">—</span>`
+          : `<div class="action-btns">
+               <button class="action-btn" title="Edit" onclick="editPurchase('${p.id}')"><i class="fas fa-pen"></i></button>
+               <button class="action-btn del" title="Hapus" onclick="confirmDeletePurchase('${p.id}')"><i class="fas fa-trash"></i></button>
+             </div>`;
+        return `<tr>
+          <td>${p.date}</td>
+          <td><small style="color:var(--text-muted)">${p.weekKey || ''}</small></td>
+          <td><strong>${p.itemName}</strong></td>
+          <td>${p.category || '-'}</td>
+          <td>${fmt(p.quantity)} ${p.unit || ''}</td>
+          <td>${fmtRp(p.unitPrice)}</td>
+          <td style="font-weight:600">${fmtRp(p.totalCost)}</td>
+          <td>${statusBadgeStr}</td>
+          <td style="color:var(--text-muted);font-size:12px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.note || ''}">${p.note || '-'}</td>
+          <td>${actions}</td>
+        </tr>`;
+      }).join('')
+    : `<tr><td colspan="10"><div class="empty-state"><i class="fas fa-shopping-basket"></i><h4>Belum ada data belanja</h4><p>Tambahkan belanja produksi pertama</p></div></td></tr>`;
+
+  // ---- Pagination ----
+  let pag = `<button ${state.pp.page <= 1 ? 'disabled' : ''} onclick="goPPPage(${state.pp.page - 1})"><i class="fas fa-chevron-left"></i></button>`;
+  for (let i = 1; i <= Math.min(total, 10); i++) {
+    pag += `<button class="${i === state.pp.page ? 'active' : ''}" onclick="goPPPage(${i})">${i}</button>`;
+  }
+  pag += `<button ${state.pp.page >= total ? 'disabled' : ''} onclick="goPPPage(${state.pp.page + 1})"><i class="fas fa-chevron-right"></i></button>`;
+
+  container.innerHTML = `
+    <div class="card">
+      ${toolbar}
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead><tr>
+            <th>Tanggal</th><th>Minggu</th><th>Nama Barang</th><th>Kategori</th>
+            <th>Qty</th><th>Harga Satuan</th><th>Total</th><th>Status</th><th>Catatan</th><th>Aksi</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <div class="table-footer">
+        <span>${list.length > 0 ? `Menampilkan ${start + 1}–${Math.min(start + perPage, list.length)} dari ${list.length}` : ''}</span>
+        <div class="pagination">${pag}</div>
+      </div>
+    </div>`;
+}
+
+// ---- Search/filter handlers ----
+window.onPPSearch = function(val) {
+  state.pp.search = val; state.pp.page = 1; renderBelanjaProduksi();
+};
+window.onPPWeek = function(val) {
+  state.pp.week = val; state.pp.page = 1; renderBelanjaProduksi();
+};
+window.onPPStatus = function(val) {
+  state.pp.status = val; state.pp.page = 1; renderBelanjaProduksi();
+};
+window.goPPPage = function(n) { state.pp.page = n; renderBelanjaProduksi(); };
+
+// ---- Purchase modal helpers ----
+function purchaseFormHTML(p) {
+  const v = p || { date: today, weekKey: getWeekKey(today), itemName: '', category: '', quantity: 1, unit: 'pcs', unitPrice: 0, totalCost: 0, note: '' };
+  return `
+    <div class="form-row">
+      <div class="form-group"><label>Tanggal</label><input type="date" class="form-input" id="fPPDate" value="${v.date}" oninput="updatePPWeekKey()"></div>
+      <div class="form-group"><label>Kode Minggu</label><input type="text" class="form-input" id="fPPWeekKey" value="${v.weekKey}" readonly style="background:var(--primary-light)"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full"><label>Nama Barang</label><input type="text" class="form-input" id="fPPItemName" value="${v.itemName || ''}" placeholder="Contoh: Kain Canvas" required></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Kategori Belanja</label><input type="text" class="form-input" id="fPPCategory" value="${v.category || ''}" placeholder="Contoh: Bahan Baku"></div>
+      <div class="form-group"><label>Satuan</label><input type="text" class="form-input" id="fPPUnit" value="${v.unit || 'pcs'}" placeholder="pcs / meter / kg"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Jumlah</label><input type="number" class="form-input" id="fPPQty" value="${v.quantity}" min="0.01" step="0.01" oninput="calcPPTotal()"></div>
+      <div class="form-group"><label>Harga Satuan (Rp)</label><input type="number" class="form-input" id="fPPUnitPrice" value="${v.unitPrice}" min="0" oninput="calcPPTotal()"></div>
+    </div>
+    <div style="padding:10px 14px;background:var(--primary-light);border-radius:var(--radius-sm);font-size:13px;margin-bottom:16px">
+      Total: <strong id="fPPTotalDisplay">${fmtRp(v.totalCost)}</strong>
+    </div>
+    <div class="form-group"><label>Catatan</label><input type="text" class="form-input" id="fPPNote" value="${v.note || ''}" placeholder="Opsional"></div>`;
+}
+
+window.updatePPWeekKey = function() {
+  const dateEl = $('#fPPDate'), wkEl = $('#fPPWeekKey');
+  if (dateEl && wkEl) wkEl.value = getWeekKey(dateEl.value);
+};
+window.calcPPTotal = function() {
+  const qty = parseFloat($('#fPPQty').value) || 0;
+  const up  = parsePrice($('#fPPUnitPrice').value);
+  const total = Math.round(qty * up);
+  const el = $('#fPPTotalDisplay');
+  if (el) el.textContent = fmtRp(total);
+};
+
+// ---- Open Add Modal ----
+window.openAddPurchaseModal = function() {
+  openModal('Tambah Belanja Produksi', purchaseFormHTML(), `
+    <button class="btn btn-outline btn-sm" onclick="closeModal()">Batal</button>
+    <button class="btn btn-primary btn-sm" onclick="savePurchase()"><i class="fas fa-check"></i>Simpan</button>`);
+};
+
+// ---- Save new purchase ----
+window.savePurchase = async function() {
+  const itemName = ($('#fPPItemName') ? $('#fPPItemName').value : '').trim();
+  if (!itemName) { toast('Nama barang wajib diisi', 'warning'); return; }
+  const qty  = parseFloat($('#fPPQty').value) || 0;
+  const up   = parsePrice($('#fPPUnitPrice').value);
+  const date = $('#fPPDate').value || today;
+  const doc  = sanitize({
+    date: date,
+    weekKey:   $('#fPPWeekKey').value || getWeekKey(date),
+    itemName:  itemName,
+    category:  ($('#fPPCategory') ? $('#fPPCategory').value.trim() : ''),
+    quantity:  qty,
+    unit:      ($('#fPPUnit') ? $('#fPPUnit').value.trim() : 'pcs'),
+    unitPrice: up,
+    totalCost: Math.round(qty * up),
+    note:      ($('#fPPNote') ? $('#fPPNote').value.trim() : ''),
+    status:    'open',
+    closedAt:  null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+  try {
+    await db.collection('production_purchases').add(doc);
+    toast('Belanja dicatat', 'success');
+    closeModal();
+  } catch (err) { toast('Gagal: ' + err.message, 'error'); }
+};
+
+// ---- Edit purchase ----
+window.editPurchase = function(id) {
+  const p = state.productionPurchases.find(x => x.id === id);
+  if (!p) { toast('Data tidak ditemukan', 'error'); return; }
+  if (p.status === 'closed') { toast('Belanja yang sudah ditutup tidak bisa diedit', 'warning'); return; }
+  openModal('Edit Belanja Produksi', purchaseFormHTML(p), `
+    <button class="btn btn-outline btn-sm" onclick="closeModal()">Batal</button>
+    <button class="btn btn-primary btn-sm" onclick="saveEditPurchase('${id}')"><i class="fas fa-check"></i>Update</button>`);
+};
+
+window.saveEditPurchase = async function(id) {
+  const p = state.productionPurchases.find(x => x.id === id);
+  if (!p || p.status === 'closed') { toast('Tidak bisa mengedit pembelian yang sudah ditutup', 'warning'); return; }
+  const itemName = ($('#fPPItemName') ? $('#fPPItemName').value : '').trim();
+  if (!itemName) { toast('Nama barang wajib diisi', 'warning'); return; }
+  const qty  = parseFloat($('#fPPQty').value) || 0;
+  const up   = parsePrice($('#fPPUnitPrice').value);
+  const date = $('#fPPDate').value || today;
+  const updates = sanitize({
+    date: date,
+    weekKey:   $('#fPPWeekKey').value || getWeekKey(date),
+    itemName:  itemName,
+    category:  ($('#fPPCategory') ? $('#fPPCategory').value.trim() : ''),
+    quantity:  qty,
+    unit:      ($('#fPPUnit') ? $('#fPPUnit').value.trim() : 'pcs'),
+    unitPrice: up,
+    totalCost: Math.round(qty * up),
+    note:      ($('#fPPNote') ? $('#fPPNote').value.trim() : ''),
+    updatedAt: new Date().toISOString()
+  });
+  try {
+    await db.collection('production_purchases').doc(id).update(updates);
+    toast('Belanja diupdate', 'success');
+    closeModal();
+  } catch (err) { toast('Gagal: ' + err.message, 'error'); }
+};
+
+// ---- Delete purchase ----
+window.confirmDeletePurchase = function(id) {
+  const p = state.productionPurchases.find(x => x.id === id);
+  if (!p) return;
+  if (p.status === 'closed') { toast('Belanja yang sudah ditutup tidak bisa dihapus', 'warning'); return; }
+  openModal('Konfirmasi Hapus',
+    `<div style="text-align:center;padding:10px 0">
+       <i class="fas fa-trash" style="font-size:40px;color:var(--danger);opacity:.6;margin-bottom:14px;display:block"></i>
+       <p style="font-size:15px;font-weight:600">Hapus "${p.itemName}"?</p>
+       <p style="font-size:13px;color:var(--text-muted);margin-top:6px">Total: ${fmtRp(p.totalCost)}</p>
+     </div>`,
+    `<button class="btn btn-outline btn-sm" onclick="closeModal()">Batal</button>
+     <button class="btn btn-danger btn-sm" onclick="doDeletePurchase('${id}')"><i class="fas fa-trash"></i>Hapus</button>`);
+};
+
+window.doDeletePurchase = async function(id) {
+  try {
+    await db.collection('production_purchases').doc(id).delete();
+    toast('Belanja dihapus', 'success');
+    closeModal();
+  } catch (err) { toast('Gagal: ' + err.message, 'error'); }
+};
+
+// ---- Close week ----
+window.closeWeek = function(weekKey) {
+  if (!weekKey) { toast('Pilih minggu yang ingin ditutup', 'warning'); return; }
+  const openItems = state.productionPurchases.filter(p => p.weekKey === weekKey && p.status === 'open');
+  if (!openItems.length) { toast('Tidak ada pembelian open di minggu ' + weekKey, 'warning'); return; }
+  const weekTotal = state.productionPurchases
+    .filter(p => p.weekKey === weekKey).reduce((s, p) => s + (p.totalCost || 0), 0);
+  openModal('Tutup Minggu ' + weekKey,
+    `<div style="text-align:center;padding:10px 0">
+       <i class="fas fa-lock" style="font-size:40px;color:var(--warning);opacity:.7;margin-bottom:14px;display:block"></i>
+       <p style="font-size:15px;font-weight:600">Tutup minggu ${weekKey}?</p>
+       <p style="font-size:13px;color:var(--text-muted);margin-top:8px">${openItems.length} pembelian akan ditandai <strong>closed</strong></p>
+       <p style="font-size:14px;font-weight:700;margin-top:10px">Total minggu: ${fmtRp(weekTotal)}</p>
+     </div>`,
+    `<button class="btn btn-outline btn-sm" onclick="closeModal()">Batal</button>
+     <button class="btn btn-accent btn-sm" onclick="doCloseWeek('${weekKey}')"><i class="fas fa-lock"></i>Tutup Minggu</button>`);
+};
+
+window.doCloseWeek = async function(weekKey) {
+  const openItems = state.productionPurchases.filter(p => p.weekKey === weekKey && p.status === 'open');
+  if (!openItems.length) { toast('Tidak ada item open', 'warning'); closeModal(); return; }
+  try {
+    const batch = db.batch();
+    const now = new Date().toISOString();
+    openItems.forEach(p => {
+      batch.update(db.collection('production_purchases').doc(p.id), {
+        status: 'closed', closedAt: now, updatedAt: now
+      });
+    });
+    await batch.commit();
+    toast('Minggu ' + weekKey + ' berhasil ditutup (' + openItems.length + ' item)', 'success');
+    closeModal();
+  } catch (err) { toast('Gagal: ' + err.message, 'error'); }
 };
 
 /* =========================================================
