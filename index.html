@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inztamoto Suite</title>
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+  <!-- Icons & Font -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ==================== LOGIN ==================== -->
+  <div id="loginPage">
+    <div class="login-blob b1"></div>
+    <div class="login-blob b2"></div>
+    <div class="login-blob b3"></div>
+    <div class="login-card">
+      <div class="login-logo">
+        <div class="logo-wrap login-logo-icon">
+          <img src="public/logo.png" alt="InztaMoto" class="logo-img" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+          <span class="logo-text">INZ</span>
+        </div>
+        <h1>INZTAMOTO</h1>
+        <p>Sistem Manajemen Produksi & Penjualan</p>
+      </div>
+      <form id="loginForm">
+        <div class="form-group">
+          <label>Alamat Email</label>
+          <input type="email" class="form-input" id="loginEmail" placeholder="user@domain.com" required>
+        </div>
+        <div class="form-group">
+          <label>Kata Sandi</label>
+          <input type="password" class="form-input" id="loginPassword" placeholder="Masukkan kata sandi" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-full" id="loginBtn">
+          <span>Masuk ke Sistem</span> <i class="fas fa-arrow-right"></i>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==================== APP SHELL ==================== -->
+  <div id="appShell" style="display:none">
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="logo-wrap sidebar-logo-icon">
+          <img src="public/logo-mtg.png" alt="InztaMoto" class="logo-img" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+          <span class="logo-text">INZ</span>
+        </div>
+        <div class="s-text"><h2>INZTAMOTO</h2><span>Statistical Analysis System</span></div>
+      </div>
+      <nav class="sidebar-nav">
+        <div class="nav-label">Menu Utama</div>
+        <a href="#" class="nav-item active" data-page="dashboard"><i class="fas fa-chart-line"></i>Dashboard</a>
+                <a href="#" class="nav-item" data-page="penjualan"><i class="fas fa-receipt"></i>Penjualan</a>
+        <a href="#" class="nav-item" data-page="produk"><i class="fas fa-box"></i>Produk</a>
+        <a href="#" class="nav-item" data-page="kategori"><i class="fas fa-tags"></i>Kategori</a>
+        <a href="#" class="nav-item" data-page="produksi"><i class="fas fa-industry"></i>Produksi</a>
+        <a href="#" class="nav-item" data-page="inventaris"><i class="fas fa-boxes-stacked"></i>Stock Control<span class="badge-dot" id="criticalDot" style="display:none"></span></a>
+        <a href="#" class="nav-item" data-page="laporan"><i class="fas fa-file-lines"></i>Laporan</a>
+        <div class="nav-label">Sistem</div>
+        <a href="#" class="nav-item" data-page="pengguna"><i class="fas fa-users"></i>Pengguna</a>
+        <a href="#" class="nav-item" data-page="pengaturan"><i class="fas fa-gear"></i>Pengaturan</a>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="sidebar-user">
+          <div class="avatar" id="userAvatar">A</div>
+          <div class="u-info"><div class="name" id="userName">Admin</div><div class="role" id="userRole">Owner</div></div>
+          <button class="logout-btn" id="logoutBtn" title="Keluar"><i class="fas fa-right-from-bracket"></i></button>
+        </div>
+      </div>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="hamburger" id="hamburgerBtn"><i class="fas fa-bars"></i></button>
+          <h1 id="pageTitle">Dashboard</h1>
+        </div>
+        <div class="topbar-right">
+          <div class="topbar-search"><i class="fas fa-search"></i><input type="text" placeholder="Cari produk, SKU..." id="globalSearch"></div>
+          <button class="topbar-icon" id="notifBtn"><i class="fas fa-bell"></i><span class="notif-dot" id="notifDot" style="display:none"></span></button>
+        </div>
+      </header>
+
+      <div class="content">
+        <!-- Dashboard -->
+        <div class="page active" id="pageDashboard">
+          <div class="stat-grid" id="dashStats"></div>
+          <div id="dashAlerts"></div>
+          <div class="grid-2">
+            <div class="card"><div class="card-header"><h3>Tren Penjualan</h3><div class="chart-tabs" id="salesTrendTabs"><button class="chart-tab active" data-range="daily">Harian</button><button class="chart-tab" data-range="weekly">Mingguan</button><button class="chart-tab" data-range="monthly">Bulanan</button></div></div><div class="card-body"><div class="chart-wrap"><canvas id="chartSalesTrend"></canvas></div></div></div>
+            <div class="card"><div class="card-header"><h3>Distribusi Channel</h3></div><div class="card-body"><div class="chart-wrap"><canvas id="chartChannel"></canvas></div></div></div>
+          </div>
+          <div class="grid-2">
+            <div class="card"><div class="card-header"><h3>Pendapatan vs Biaya</h3></div><div class="card-body"><div class="chart-wrap"><canvas id="chartRevenueCost"></canvas></div></div></div>
+            <div class="card"><div class="card-header"><h3>Tren Produksi</h3></div><div class="card-body"><div class="chart-wrap"><canvas id="chartProduction"></canvas></div></div></div>
+          </div>
+          <div class="grid-3">
+            <div class="card"><div class="card-header"><h3>Produk Terlaris</h3></div><div class="card-body" id="topSellingList"></div></div>
+            <div class="card"><div class="card-header"><h3>Kategori Terlaris</h3></div><div class="card-body"><div class="chart-wrap" style="max-height:260px"><canvas id="chartCategory"></canvas></div></div></div>
+            <div class="card"><div class="card-header"><h3>Progress Produksi Hari Ini</h3></div><div class="card-body" id="prodProgressList"></div></div>
+          </div>
+        </div>
+
+        <!-- Produk -->
+        <div class="page" id="pageProduk">
+          <div class="card">
+            <div class="table-toolbar">
+              <div class="table-search"><i class="fas fa-search"></i><input type="text" placeholder="Cari SKU atau nama..." id="prodSearch"></div>
+              <div class="table-filter"><select id="prodFilter"><option value="all">Semua Status</option><option value="active">Aktif</option><option value="in_production">Dalam Produksi</option><option value="pre_order">Pre Order</option><option value="low_stock">Stok Rendah</option><option value="out_of_stock">Habis</option><option value="inactive">Nonaktif</option></select></div>
+              <div class="table-filter"><select id="prodCatFilter"><option value="all">Semua Kategori</option></select></div>
+              <div style="margin-left:auto;display:flex;gap:8px">
+                <button class="btn btn-outline btn-sm" id="exportProdBtn"><i class="fas fa-download"></i>Export</button>
+                <button class="btn btn-primary btn-sm" id="addProdBtn"><i class="fas fa-plus"></i>Tambah Produk</button>
+              </div>
+            </div>
+            <div class="table-scroll">
+              <table class="data-table" id="prodTable">
+                <thead><tr>
+                  <th>Gambar</th>
+                  <th data-sort="name">Produk <i class="fas fa-sort sort-icon"></i></th>
+                  <th data-sort="sku">SKU <i class="fas fa-sort sort-icon"></i></th>
+                  <th data-sort="costPrice">Harga Modal <i class="fas fa-sort sort-icon"></i></th>
+                  <th data-sort="sellingPrice">Harga Jual <i class="fas fa-sort sort-icon"></i></th>
+                  <th data-sort="profit">Keuntungan <i class="fas fa-sort sort-icon"></i></th>
+                  <th data-sort="margin">Margin <i class="fas fa-sort sort-icon"></i></th>
+                  <th data-sort="stock">Stok <i class="fas fa-sort sort-icon"></i></th>
+                  <th>Status</th><th>Aksi</th>
+                </tr></thead>
+                <tbody id="prodBody"></tbody>
+              </table>
+            </div>
+            <div class="table-footer"><span id="prodInfo">Menampilkan 0 produk</span><div class="pagination" id="prodPagination"></div></div>
+          </div>
+        </div>
+
+        <!-- Kategori -->
+        <div class="page" id="pageKategori">
+          <div class="cat-toolbar">
+            <h3 style="font-size:16px;font-weight:700">Daftar Kategori</h3>
+            <button class="btn btn-primary btn-sm" id="addCatBtn"><i class="fas fa-plus"></i>Tambah Kategori</button>
+          </div>
+          <div class="cat-accordion" id="catAccordion"></div>
+        </div>
+
+        <!-- Produksi -->
+        <div class="page" id="pageProduksi">
+          <div class="stat-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px" id="prodStats"></div>
+          <div class="card">
+            <div class="table-toolbar">
+              <div class="table-search"><i class="fas fa-search"></i><input type="text" placeholder="Cari..." id="prodProdSearch"></div>
+              <div class="table-filter"><select id="prodStatusFilter"><option value="all">Semua Status</option><option value="pending">Pending</option><option value="in_progress">Dalam Proses</option><option value="qc">Quality Control</option><option value="completed">Selesai</option></select></div>
+              <div style="margin-left:auto"><button class="btn btn-primary btn-sm" id="addProdOrderBtn"><i class="fas fa-plus"></i>Tambah Produksi</button></div>
+            </div>
+            <div class="table-scroll">
+              <table class="data-table"><thead><tr><th>Gambar</th><th>Produk</th><th>SKU</th><th>Target</th><th>Selesai</th><th>Progress</th><th>Tanggal</th><th>Status</th><th>Aksi</th></tr></thead><tbody id="prodOrderBody"></tbody></table>
+            </div>
+            <div class="table-footer"><span id="prodOrderInfo"></span><div class="pagination" id="prodOrderPag"></div></div>
+          </div>
+        </div>
+
+        <!-- Inventaris -->
+        <div class="page" id="pageInventaris">
+          <div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap">
+            <button class="btn btn-primary btn-sm" id="stockInBtn"><i class="fas fa-arrow-down"></i>Stok Masuk</button>
+            <button class="btn btn-accent btn-sm" id="stockOutBtn"><i class="fas fa-arrow-up"></i>Stok Keluar</button>
+            <button class="btn btn-outline btn-sm" id="stockAdjBtn"><i class="fas fa-sliders"></i>Penyesuaian</button>
+          </div>
+          <div class="card">
+            <div class="table-toolbar">
+              <div class="table-search"><i class="fas fa-search"></i><input type="text" placeholder="Cari SKU atau produk..." id="invSearch"></div>
+              <div class="table-filter"><select id="invFilter"><option value="all">Semua</option><option value="safe">Aman</option><option value="low">Stok Rendah</option><option value="out">Habis</option></select></div>
+            </div>
+            <div class="table-scroll">
+              <table class="data-table"><thead><tr><th>Gambar</th><th>SKU</th><th>Produk</th><th>Stok Awal</th><th>Masuk</th><th>Keluar</th><th>Stok Saat Ini</th><th>Status</th></tr></thead><tbody id="invBody"></tbody></table>
+            </div>
+            <div class="table-footer"><span id="invInfo"></span></div>
+          </div>
+          <div class="card" style="margin-top:18px"><div class="card-header"><h3>Riwayat Pergerakan Stok</h3></div><div class="card-body no-pad"><div class="table-scroll"><table class="data-table"><thead><tr><th>Tanggal</th><th>SKU</th><th>Produk</th><th>Tipe</th><th>Jumlah</th><th>Catatan</th><th>Aksi</th></tr></thead><tbody id="invHistoryBody"></tbody></table></div></div></div>
+        </div>
+
+        <!-- Penjualan -->
+        <div class="page" id="pagePenjualan">
+          <div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap">
+            <button class="btn btn-primary btn-sm" id="addSaleBtn"><i class="fas fa-plus"></i>Catat Penjualan</button>
+          </div>
+          <div class="card">
+            <div class="table-toolbar">
+              <div class="table-search"><i class="fas fa-search"></i><input type="text" placeholder="Cari transaksi..." id="saleSearch"></div>
+              <div class="table-filter"><select id="saleChannelFilter"><option value="all">Semua Channel</option><option value="Website">Website</option><option value="Shopee">Shopee</option><option value="Tokopedia">Tokopedia</option><option value="WhatsApp">WhatsApp</option><option value="Offline Store">Offline Store</option></select></div>
+            </div>
+            <div class="table-scroll">
+              <table class="data-table"><thead><tr><th>Gambar</th><th>No. Transaksi</th><th>Tanggal</th><th>Produk</th><th>Qty</th><th>Channel</th><th>Pendapatan</th><th>Keuntungan</th><th>Aksi</th></tr></thead><tbody id="saleBody"></tbody></table>
+            </div>
+            <div class="table-footer"><span id="saleInfo"></span><div class="pagination" id="salePag"></div></div>
+          </div>
+        </div>
+
+        <!-- Laporan -->
+        <div class="page" id="pageLaporan">
+          <div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;align-items:center">
+            <div class="table-filter"><select id="reportType"><option value="sales">Laporan Penjualan</option><option value="production">Laporan Produksi</option><option value="inventory">Laporan Inventaris</option><option value="profit">Laporan Keuntungan</option><option value="bestseller">Produk Terlaris</option></select></div>
+            <div class="table-filter"><select id="reportPeriod"><option value="daily">Harian</option><option value="weekly">Mingguan</option><option value="monthly" selected>Bulanan</option><option value="yearly">Tahunan</option></select></div>
+            <button class="btn btn-outline btn-sm" id="exportCsvBtn"><i class="fas fa-file-csv"></i>Export CSV</button>
+          </div>
+          <div class="stat-grid" id="reportStats" style="grid-template-columns:repeat(4,1fr)"></div>
+          <div class="grid-2">
+            <div class="card"><div class="card-header"><h3>Grafik Laporan</h3></div><div class="card-body"><div class="chart-wrap"><canvas id="chartReport"></canvas></div></div></div>
+            <div class="card"><div class="card-header"><h3>Detail</h3></div><div class="card-body" id="reportDetail"></div></div>
+          </div>
+        </div>
+
+        <!-- Pengguna -->
+        <div class="page" id="pagePengguna">
+          <div class="card">
+            <div class="table-toolbar"><h3 style="font-size:15px;font-weight:700">Daftar Pengguna</h3></div>
+            <div class="table-scroll">
+              <table class="data-table"><thead><tr><th>Nama</th><th>Email</th><th>Peran</th><th>Status</th></tr></thead><tbody id="userBody"></tbody></table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pengaturan -->
+        <div class="page" id="pagePengaturan">
+          <div class="grid-2">
+            <div class="card"><div class="card-header"><h3>Profil Pengguna</h3></div><div class="card-body">
+              <div style="text-align:center;margin-bottom:20px"><div class="avatar" style="width:72px;height:72px;font-size:28px;margin:0 auto 12px;border-radius:18px" id="settingsAvatar">A</div><h3 style="font-size:18px;font-weight:700" id="settingsName">Admin</h3><p style="font-size:13px;color:var(--text-muted)" id="settingsEmail">user@domain.com</p></div>
+              <div class="form-group"><label>Nama Lengkap</label><input type="text" class="form-input" id="settingNameInput" value="Admin"></div>
+              <div class="form-group"><label>Email</label><input type="email" class="form-input" id="settingEmailInput" value="user@domain.com" disabled></div>
+              <button class="btn btn-primary btn-sm btn-full" id="saveProfileBtn"><i class="fas fa-check"></i>Simpan Perubahan</button>
+            </div></div>
+            <div class="card"><div class="card-header"><h3>Pengaturan Aplikasi</h3></div><div class="card-body">
+              <div class="settings-section"><h3>Notifikasi</h3>
+                <div class="setting-row"><div class="setting-label"><h4>Alert Stok Habis</h4><p>Notifikasi saat stok produk habis</p></div><div class="toggle active" data-setting="alertOut"></div></div>
+                <div class="setting-row"><div class="setting-label"><h4>Alert Stok Rendah</h4><p>Notifikasi saat stok menipis</p></div><div class="toggle active" data-setting="alertLow"></div></div>
+                <div class="setting-row"><div class="setting-label"><h4>Notifikasi Produksi Selesai</h4><p>Beritahu saat produksi selesai</p></div><div class="toggle active" data-setting="alertProdDone"></div></div>
+              </div>
+              <div class="settings-section"><h3>Tampilan</h3>
+                <div class="setting-row"><div class="setting-label"><h4>Animasi Halaman</h4><p>Aktifkan transisi antar halaman</p></div><div class="toggle active" data-setting="animations"></div></div>
+              </div>
+            </div></div>
+          </div>
+          <div class="card" style="margin-top:18px"><div class="card-header"><h3>Tentang Sistem</h3></div><div class="card-body" style="font-size:13px;color:var(--text-muted);line-height:1.8">
+            <strong style="color:var(--text)">InztaMoto ERP v1.0.0</strong><br>
+            Sistem ERP untuk InztaMoto — brand tas motor dan riding gear. Mengelola produksi, inventaris, penjualan, dan analitik keuntungan secara realtime via Firebase.<br><br>
+            <strong style="color:var(--text)">Rumus Perhitungan:</strong><br>
+            Keuntungan = Harga Jual - Harga Modal<br>
+            Margin = (Keuntungan / Harga Jual) x 100%<br>
+            Laba = Total Pendapatan - Total Biaya<br>
+            Margin Laba = (Laba / Pendapatan) x 100%
+          </div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal -->
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal" id="modalContent">
+      <div class="modal-header"><h3 id="modalTitle">Modal</h3><button class="modal-close" id="modalClose"><i class="fas fa-xmark"></i></button></div>
+      <div class="modal-body" id="modalBody"></div>
+      <div class="modal-footer" id="modalFooter"></div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toastContainer"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

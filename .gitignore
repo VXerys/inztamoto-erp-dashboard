@@ -1,0 +1,21 @@
+# docs
+docs/
+.kiro/
+prompts/
+
+# env
+.env.local
+.env*.local
+
+# Next.js
+.next/
+out/
+node_modules/
+
+# backup
+backup-original/
+
+# misc
+.DS_Store
+*.log
+
