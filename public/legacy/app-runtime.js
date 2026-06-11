@@ -1662,12 +1662,25 @@ window.deleteSale = async function (id) {
 
 function getWeekKey(dateStr) {
   const d = new Date(dateStr || today);
-  const year = d.getFullYear();
-  // ISO week number
-  const startOfYear = new Date(year, 0, 1);
-  const dayOfYear = Math.floor((d - startOfYear) / 86400000) + 1;
-  const weekNum = Math.ceil((dayOfYear + startOfYear.getDay()) / 7);
-  return year + '-W' + String(weekNum).padStart(2, '0');
+  const day  = d.getDate();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year  = d.getFullYear();
+  // W1=1-7, W2=8-14, W3=15-21, W4=22-28, W5=29-end
+  const weekNum = day <= 7 ? 1 : day <= 14 ? 2 : day <= 21 ? 3 : day <= 28 ? 4 : 5;
+  return year + '-' + month + '-W' + weekNum;
+}
+
+function weekKeyLabel(wk) {
+  // "2026-06-W2" => "Juni 2026 - Minggu 2"
+  if (!wk) return wk;
+  const parts = wk.split('-');
+  if (parts.length < 3) return wk;
+  const year = parts[0];
+  const monthNum = parseInt(parts[1], 10);
+  const weekPart = parts[2]; // "W2"
+  const MONTHS_ID = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+  const monthName = MONTHS_ID[monthNum - 1] || parts[1];
+  return monthName + ' ' + year + ' — Minggu ' + weekPart.replace('W', '');
 }
 
 function getAvailableWeeks() {
@@ -1706,7 +1719,7 @@ function renderBelanjaProduksi() {
   const items    = list.slice(start, start + perPage);
 
   const weekOpts = getAvailableWeeks()
-    .map(w => `<option value="${w}" ${w === week ? 'selected' : ''}>${w}</option>`).join('');
+    .map(w => `<option value="${w}" ${w === week ? 'selected' : ''}>${weekKeyLabel(w)}</option>`).join('');
 
   // ---- Toolbar ----
   const toolbar = `
@@ -1725,7 +1738,7 @@ function renderBelanjaProduksi() {
         </select>
       </div>
       <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
-        <span style="font-size:13px;color:var(--text-muted)">Total ${selectedWeek}: <strong style="color:var(--text)">${fmtRp(weeklyTotal)}</strong></span>
+        <span style="font-size:13px;color:var(--text-muted)">Total ${weekKeyLabel(selectedWeek)}: <strong style="color:var(--text)">${fmtRp(weeklyTotal)}</strong></span>
         <button class="btn btn-outline btn-sm" onclick="closeWeek('${selectedWeek}')"><i class="fas fa-lock"></i>Tutup Minggu</button>
         <button class="btn btn-primary btn-sm" onclick="openAddPurchaseModal()"><i class="fas fa-plus"></i>Tambah Belanja</button>
       </div>
@@ -1937,10 +1950,10 @@ window.closeWeek = function(weekKey) {
   if (!openItems.length) { toast('Tidak ada pembelian open di minggu ' + weekKey, 'warning'); return; }
   const weekTotal = state.productionPurchases
     .filter(p => p.weekKey === weekKey).reduce((s, p) => s + (p.totalCost || 0), 0);
-  openModal('Tutup Minggu ' + weekKey,
+  openModal('Tutup Minggu ' + weekKeyLabel(weekKey),
     `<div style="text-align:center;padding:10px 0">
        <i class="fas fa-lock" style="font-size:40px;color:var(--warning);opacity:.7;margin-bottom:14px;display:block"></i>
-       <p style="font-size:15px;font-weight:600">Tutup minggu ${weekKey}?</p>
+       <p style="font-size:15px;font-weight:600">Tutup ${weekKeyLabel(weekKey)}?</p>
        <p style="font-size:13px;color:var(--text-muted);margin-top:8px">${openItems.length} pembelian akan ditandai <strong>closed</strong></p>
        <p style="font-size:14px;font-weight:700;margin-top:10px">Total minggu: ${fmtRp(weekTotal)}</p>
      </div>`,
@@ -1960,7 +1973,7 @@ window.doCloseWeek = async function(weekKey) {
       });
     });
     await batch.commit();
-    toast('Minggu ' + weekKey + ' berhasil ditutup (' + openItems.length + ' item)', 'success');
+    toast(weekKeyLabel(weekKey) + ' berhasil ditutup (' + openItems.length + ' item)', 'success');
     closeModal();
   } catch (err) { toast('Gagal: ' + err.message, 'error'); }
 };
