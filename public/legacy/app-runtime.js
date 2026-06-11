@@ -117,18 +117,54 @@ function sanitize(obj) {
   return clean;
 }
 
-function generateSKU(categoryId) {
+function getCategorySkuCode(cat) {
+  if (!cat) return 'XX';
+  if (cat.skuCode && cat.skuCode.trim()) {
+    return cat.skuCode.trim().toUpperCase().slice(0, 2);
+  }
+  // Fallback dari nama: ambil inisial 2 kata pertama
+  const words = cat.name.trim().split(/\s+/);
+  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+  return cat.name.slice(0, 2).toUpperCase();
+}
+
+function generateSKU(categoryId, excludeProductId) {
   const cat = state.categories.find(c => c.id === categoryId);
-  if (!cat) return 'INZ-XXX-001';
-  const prefix = SKU_MAP[cat.name] || 'INZ-XXX';
-  let max = 0;
-  state.products.forEach(p => {
-    if (p.sku && p.sku.startsWith(prefix)) {
-      const num = parseInt(p.sku.split('-').pop());
-      if (num > max) max = num;
+  if (!cat) return 'INZ-XX-01';
+
+  // Priority: skuCode field → SKU_MAP lama → generate dari nama
+  var prefix;
+  if (cat.skuCode && cat.skuCode.trim()) {
+    prefix = 'INZ-' + cat.skuCode.trim().toUpperCase().slice(0, 2);
+  } else if (SKU_MAP[cat.name]) {
+    prefix = SKU_MAP[cat.name];
+  } else {
+    prefix = 'INZ-' + getCategorySkuCode(cat);
+  }
+
+  // Kumpulkan semua angka sequence yang sudah dipakai
+  var usedNums = {};
+  state.products.forEach(function(p) {
+    if (excludeProductId && p.id === excludeProductId) return;
+    if (p.sku && p.sku.startsWith(prefix + '-')) {
+      var parts = p.sku.split('-');
+      var num = parseInt(parts[parts.length - 1]);
+      if (!isNaN(num)) usedNums[num] = true;
     }
   });
-  return prefix + '-' + String(max + 1).padStart(3, '0');
+
+  // Cari sequence terkecil yang belum dipakai
+  var seq = 1;
+  while (usedNums[seq]) seq++;
+
+  return prefix + '-' + String(seq).padStart(2, '0');
+}
+
+function isSkuUnique(sku, excludeProductId) {
+  return !state.products.some(function(p) {
+    if (excludeProductId && p.id === excludeProductId) return false;
+    return p.sku === sku;
+  });
 }
 
 function prodImg(p, size = 40) {
@@ -866,10 +902,22 @@ window.saveNewProduct = async function () {
   if (!name) { toast('Nama produk wajib diisi', 'warning'); return; }
   const cp = parseInt(getFormVal('fCost', '0')) || 0;
   const sp = parseInt(getFormVal('fSell', '0')) || 0;
+  const catId = getFormVal('fCat', '');
+
+  // Ambil SKU dari form; jika sudah dipakai regenerate (generateSKU sudah skip ke sequence unik)
+  let sku = getFormVal('fSku', generateSKU(catId));
+  if (!isSkuUnique(sku)) {
+    sku = generateSKU(catId);
+    if (!isSkuUnique(sku)) {
+      toast('Tidak dapat membuat SKU unik untuk kategori ini.', 'error');
+      return;
+    }
+    $('#fSku').value = sku;
+  }
 
   const productData = sanitize({
     name: name,
-    sku: getFormVal('fSku', generateSKU(getFormVal('fCat'))),
+    sku: sku,
     slug: name.toLowerCase().replace(/\s+/g, '-'),
     categoryId: getFormVal('fCat', ''),
     description: getFormVal('fDesc', ''),
@@ -1027,19 +1075,53 @@ window.toggleCategory = function (id) {
 };
 
  $('#addCatBtn').addEventListener('click', () => {
-  openModal('Tambah Kategori', `<div class="form-group"><label>Nama Kategori</label><input type="text" class="form-input" id="fCatName" placeholder="Contoh: Helmet Bag"></div><div class="form-group"><label>Deskripsi</label><input type="text" class="form-input" id="fCatDesc" placeholder="Deskripsi singkat"></div>`, `<button class="btn btn-outline btn-sm" onclick="closeModal()">Batal</button><button class="btn btn-primary btn-sm" onclick="saveNewCategory()"><i class="fas fa-check"></i>Simpan</button>`);
+  openModal('Tambah Kategori', `<div class="form-group"><label>Nama Kategori</label><input type="text" class="form-input" id="fCatName" placeholder="Contoh: Helmet Bag"></div><div class="form-group"><label>Kode SKU <small style="color:var(--text-muted);font-weight:400">(2 huruf, contoh: TB, SB, HB)</small></label><input type="text" class="form-input" id="fCatSku" placeholder="Contoh: HB" maxlength="2" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z]/g,'')"></div><div class="form-group"><label>Deskripsi</label><input type="text" class="form-input" id="fCatDesc" placeholder="Deskripsi singkat"></div>`, `<button class="btn btn-outline btn-sm" onclick="closeModal()">Batal</button><button class="btn btn-primary btn-sm" onclick="saveNewCategory()"><i class="fas fa-check"></i>Simpan</button>`);
 });
 window.saveNewCategory = async function () {
-  const n = $('#fCatName').value.trim(); if (!n) { toast('Nama wajib diisi', 'warning'); return; }
-  try { await db.collection('categories').add({ name: n, slug: n.toLowerCase().replace(/\s+/g, '-'), description: $('#fCatDesc').value, productCount: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); toast('Kategori ditambahkan', 'success'); closeModal(); } catch (err) { toast('Gagal: ' + err.message, 'error'); }
+  const n = $('#fCatName').value.trim();
+  if (!n) { toast('Nama wajib diisi', 'warning'); return; }
+
+  const rawSku = ($('#fCatSku') ? $('#fCatSku').value : '').trim().toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2);
+  if (!rawSku) { toast('Kode SKU wajib diisi (2 huruf)', 'warning'); return; }
+
+  // Validasi uniqueness skuCode
+  const duplicate = state.categories.find(c => c.skuCode && c.skuCode.toUpperCase() === rawSku);
+  if (duplicate) { toast('Kode SKU "' + rawSku + '" sudah dipakai oleh kategori "' + duplicate.name + '"', 'error'); return; }
+
+  try {
+    await db.collection('categories').add({
+      name: n, slug: n.toLowerCase().replace(/\s+/g, '-'),
+      description: $('#fCatDesc').value, skuCode: rawSku,
+      productCount: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+    });
+    toast('Kategori ditambahkan', 'success');
+    closeModal();
+  } catch (err) { toast('Gagal: ' + err.message, 'error'); }
 };
 window.editCategory = function (id) {
   const c = state.categories.find(x => x.id === id); if (!c) return;
-  openModal('Edit Kategori', `<div class="form-group"><label>Nama Kategori</label><input type="text" class="form-input" id="fCatName" value="${c.name}"></div><div class="form-group"><label>Deskripsi</label><input type="text" class="form-input" id="fCatDesc" value="${c.description || ''}"></div>`, `<button class="btn btn-outline btn-sm" onclick="closeModal()">Batal</button><button class="btn btn-primary btn-sm" onclick="saveEditCategory('${id}')"><i class="fas fa-check"></i>Update</button>`);
+  openModal('Edit Kategori', `<div class="form-group"><label>Nama Kategori</label><input type="text" class="form-input" id="fCatName" value="${c.name}"></div><div class="form-group"><label>Kode SKU <small style="color:var(--text-muted);font-weight:400">(2 huruf, contoh: TB, SB)</small></label><input type="text" class="form-input" id="fCatSku" value="${c.skuCode || ''}" maxlength="2" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z]/g,'')"></div><div class="form-group"><label>Deskripsi</label><input type="text" class="form-input" id="fCatDesc" value="${c.description || ''}"></div>`, `<button class="btn btn-outline btn-sm" onclick="closeModal()">Batal</button><button class="btn btn-primary btn-sm" onclick="saveEditCategory('${id}')"><i class="fas fa-check"></i>Update</button>`);
 };
 window.saveEditCategory = async function (id) {
-  const n = $('#fCatName').value.trim(); if (!n) { toast('Nama wajib diisi', 'warning'); return; }
-  try { await db.collection('categories').doc(id).update({ name: n, slug: n.toLowerCase().replace(/\s+/g, '-'), description: $('#fCatDesc').value, updatedAt: new Date().toISOString() }); toast('Kategori diupdate', 'success'); closeModal(); } catch (err) { toast('Gagal: ' + err.message, 'error'); }
+  const n = $('#fCatName').value.trim();
+  if (!n) { toast('Nama wajib diisi', 'warning'); return; }
+
+  const rawSku = ($('#fCatSku') ? $('#fCatSku').value : '').trim().toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2);
+  if (!rawSku) { toast('Kode SKU wajib diisi (2 huruf)', 'warning'); return; }
+
+  // Validasi uniqueness — exclude kategori yang sedang diedit
+  const duplicate = state.categories.find(c => c.id !== id && c.skuCode && c.skuCode.toUpperCase() === rawSku);
+  if (duplicate) { toast('Kode SKU "' + rawSku + '" sudah dipakai oleh kategori "' + duplicate.name + '"', 'error'); return; }
+
+  try {
+    await db.collection('categories').doc(id).update({
+      name: n, slug: n.toLowerCase().replace(/\s+/g, '-'),
+      description: $('#fCatDesc').value, skuCode: rawSku,
+      updatedAt: new Date().toISOString()
+    });
+    toast('Kategori diupdate', 'success');
+    closeModal();
+  } catch (err) { toast('Gagal: ' + err.message, 'error'); }
 };
 window.confirmDeleteCategory = function (id, name) {
   openModal('Konfirmasi Hapus', `<div style="text-align:center;padding:10px 0"><i class="fas fa-trash" style="font-size:40px;color:var(--danger);opacity:.6;margin-bottom:14px;display:block"></i><p style="font-size:15px;font-weight:600">Hapus kategori "${name}"?</p></div>`, `<button class="btn btn-outline btn-sm" onclick="closeModal()">Batal</button><button class="btn btn-danger btn-sm" onclick="doDeleteCategory('${id}')"><i class="fas fa-trash"></i>Hapus</button>`);
