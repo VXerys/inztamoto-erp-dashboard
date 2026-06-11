@@ -98,6 +98,15 @@ const findProduct = (id, name) =>
   state.products.find(x => x.id === id) ||
   (name ? state.products.find(x => x.name === name) : null);
 
+/* parsePrice — konversi input harga ke angka bersih
+   "250000"     -> 250000
+   "Rp 250.000" -> 250000
+   ""           -> 0  */
+function parsePrice(val) {
+  if (val === null || val === undefined) return 0;
+  return parseInt(String(val).replace(/[^0-9]/g, ''), 10) || 0;
+}
+
 /* Hapus semua undefined/null secara rekursif — aman untuk Firestore */
 function sanitize(obj) {
   if (obj === null || obj === undefined) return '';
@@ -786,17 +795,22 @@ function renderProductTable() {
   if (!items.length) {
     tbody.innerHTML = `<tr><td colspan="10"><div class="empty-state"><i class="fas fa-box-open"></i><h4>Tidak ada produk</h4><p>Tambahkan produk pertama Anda</p></div></td></tr>`;
   } else {
-    tbody.innerHTML = items.map(p => `<tr>
+    tbody.innerHTML = items.map(p => {
+      // Backward compat: produk lama mungkin tidak punya profit/margin tersimpan
+      const displayProfit = (p.profit !== undefined && p.profit !== null) ? p.profit : calcProfit(p.sellingPrice, p.costPrice);
+      const displayMargin = (p.margin !== undefined && p.margin !== null) ? p.margin : calcMargin(p.sellingPrice, p.costPrice);
+      return `<tr>
       <td>${prodImg(p)}</td>
       <td><div style="display:flex;align-items:center;gap:8px">${p.featured ? '<i class="fas fa-star" style="color:var(--primary);font-size:11px" title="Unggulan"></i>' : ''}<div><strong style="font-size:13px">${p.name}</strong><br><small style="color:var(--text-muted)">${getCatName(p.categoryId)}</small></div></div></td>
       <td><strong style="color:var(--primary-dark)">${p.sku}</strong></td>
       <td>${fmtRp(p.costPrice)}</td><td>${fmtRp(p.sellingPrice)}</td>
-      <td style="color:var(--success);font-weight:600">${fmtRp(p.profit)}</td>
-      <td><span style="font-weight:600;color:${p.margin >= 40 ? 'var(--success)' : p.margin >= 25 ? 'var(--warning)' : 'var(--danger)'}">${p.margin}%</span></td>
+      <td style="color:var(--success);font-weight:600">${fmtRp(displayProfit)}</td>
+      <td><span style="font-weight:600;color:${displayMargin >= 40 ? 'var(--success)' : displayMargin >= 25 ? 'var(--warning)' : 'var(--danger)'}">${displayMargin}%</span></td>
       <td><strong>${fmt(p.stock)}</strong></td>
       <td>${statusBadge(p.status)}</td>
       <td><div class="action-btns"><button class="action-btn" title="Edit" onclick="editProduct('${p.id}')"><i class="fas fa-pen"></i></button><button class="action-btn del" title="Hapus" onclick="confirmDeleteProduct('${p.id}','${(p.name || '').replace(/'/g, "\\'")}')"><i class="fas fa-trash"></i></button></div></td>
-    </tr>`).join('');
+    </tr>`;
+    }).join('');
   }
 
   const end = Math.min(start + perPage, filtered.length);
@@ -877,7 +891,7 @@ window.onCategoryChange = function () {
   $('#fSku').value = generateSKU(catId);
 };
 window.calcFormProfit = function () {
-  const cp = parseInt($('#fCost').value) || 0, sp = parseInt($('#fSell').value) || 0;
+  const cp = parsePrice($('#fCost').value), sp = parsePrice($('#fSell').value);
   $('#fProfitDisplay').textContent = fmtRp(calcProfit(sp, cp));
   $('#fMarginDisplay').textContent = calcMargin(sp, cp) + '%';
 };
@@ -898,9 +912,12 @@ function getFormVal(id, fallback = '') {
 window.saveNewProduct = async function () {
   const name = getFormVal('fName').trim();
   if (!name) { toast('Nama produk wajib diisi', 'warning'); return; }
-  const cp = parseInt(getFormVal('fCost', '0')) || 0;
-  const sp = parseInt(getFormVal('fSell', '0')) || 0;
+  const cp = parsePrice(getFormVal('fCost', '0'));
+  const sp = parsePrice(getFormVal('fSell', '0'));
   const catId = getFormVal('fCat', '');
+
+  if (cp < 0 || sp < 0) { toast('Harga tidak boleh negatif', 'warning'); return; }
+  if (sp < cp) toast('Harga jual lebih rendah dari harga modal — margin negatif', 'warning');
 
   // Ambil SKU dari form; jika sudah dipakai regenerate (generateSKU sudah skip ke sequence unik)
   let sku = getFormVal('fSku', generateSKU(catId));
@@ -952,15 +969,18 @@ window.editProduct = function (id) {
 window.saveEditProduct = async function (id) {
   const name = getFormVal('fName').trim();
   if (!name) { toast('Nama produk wajib diisi', 'warning'); return; }
-  const cp = parseInt(getFormVal('fCost', '0')) || 0;
-  const sp = parseInt(getFormVal('fSell', '0')) || 0;
+  const cp = parsePrice(getFormVal('fCost', '0'));
+  const sp = parsePrice(getFormVal('fSell', '0'));
+
+  if (cp < 0 || sp < 0) { toast('Harga tidak boleh negatif', 'warning'); return; }
+  if (sp < cp) toast('Harga jual lebih rendah dari harga modal — margin negatif', 'warning');
 
   const p = state.products.find(x => x.id === id);
   const images = state.tempImageData ? [state.tempImageData] : (p && p.images ? p.images : []);
 
   const productData = sanitize({
     name: name,
-    sku: getFormVal('fSku', p ? p.sku : ''),
+    sku: p ? p.sku : getFormVal('fSku', ''),  // always preserve existing SKU, never regenerate
     slug: name.toLowerCase().replace(/\s+/g, '-'),
     categoryId: getFormVal('fCat', p ? p.categoryId : ''),
     description: getFormVal('fDesc', ''),
@@ -1457,8 +1477,9 @@ let saleSearchTimeout;
 window.updateSaleForm = function () {
   const pid = $('#fSaleProd').value, p = state.products.find(x => x.id === pid); if (!p) return;
   const qty = parseInt($('#fSaleQty').value) || 1;
+  const productProfit = (p.profit !== undefined && p.profit !== null) ? p.profit : calcProfit(p.sellingPrice, p.costPrice);
   $('#fSaleRev').textContent = fmtRp(p.sellingPrice * qty);
-  $('#fSaleProfit').textContent = fmtRp(p.profit * qty);
+  $('#fSaleProfit').textContent = fmtRp(productProfit * qty);
 };
 
 window.saveSale = async function () {
@@ -1479,7 +1500,8 @@ window.saveSale = async function () {
       txNumber: 'TXN-' + String(txNum).padStart(5, '0'),
       date: saleDate, productId: pid, productName: p.name, sku: p.sku,
       quantity: qty, costPrice: p.costPrice, sellingPrice: p.sellingPrice,
-      revenue: p.sellingPrice * qty, profit: p.profit * qty,
+      revenue: p.sellingPrice * qty,
+      profit: calcProfit(p.sellingPrice, p.costPrice) * qty,
       channel: $('#fSaleChannel').value, customer: $('#fSaleCustomer').value || '-',
       notes: $('#fSaleNotes').value,
       createdAt: new Date().toISOString()
