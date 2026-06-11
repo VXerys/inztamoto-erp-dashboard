@@ -2505,25 +2505,51 @@ document.addEventListener('click', e => {
 /* =========================================================
    INISIALISASI APLIKASI
    ========================================================= */
+
+/**
+ * loadUserProfile — cari profil user di Firestore.
+ * Urutan: by uid → by email as doc ID → query by email field → fallback default.
+ * @param {object} firebaseUser — firebase.auth().currentUser
+ * @returns {Promise<object>} state.user shape { name, email, role, status }
+ */
+async function loadUserProfile(firebaseUser) {
+  const fallback = {
+    name: firebaseUser.displayName || firebaseUser.email.split('@')[0],
+    email: firebaseUser.email,
+    role: 'User',
+    status: 'Aktif'
+  };
+
+  try {
+    // 1. Lookup by UID (doc id = uid — standard Firebase pattern)
+    const byUid = await db.collection('users').doc(firebaseUser.uid).get();
+    if (byUid.exists) {
+      return { ...fallback, ...byUid.data(), email: firebaseUser.email };
+    }
+
+    // 2. Lookup by email as doc ID (some apps store user docs keyed by email)
+    const byEmailDocId = await db.collection('users').doc(firebaseUser.email).get();
+    if (byEmailDocId.exists) {
+      return { ...fallback, ...byEmailDocId.data(), email: firebaseUser.email };
+    }
+
+    // 3. Query by email field (email stored as a field, not as doc ID)
+    const byEmailQuery = await db.collection('users').where('email', '==', firebaseUser.email).limit(1).get();
+    if (!byEmailQuery.empty) {
+      return { ...fallback, ...byEmailQuery.docs[0].data(), email: firebaseUser.email };
+    }
+  } catch (err) {
+    console.warn('loadUserProfile error:', err);
+  }
+
+  // 4. No Firestore profile found — use fallback (role: User)
+  return fallback;
+}
+
 (function initApp() {
   if (auth.currentUser) {
-    db.collection('users').doc(auth.currentUser.uid).get().then(doc => {
-      if (doc.exists) {
-        state.user = { ...doc.data(), email: auth.currentUser.email };
-      } else {
-        state.user = {
-          name: auth.currentUser.displayName || auth.currentUser.email.split('@')[0],
-          email: auth.currentUser.email,
-          role: 'User'
-        };
-      }
-      enterApp();
-    }).catch(() => {
-      state.user = {
-        name: auth.currentUser.displayName || auth.currentUser.email.split('@')[0],
-        email: auth.currentUser.email,
-        role: 'User'
-      };
+    loadUserProfile(auth.currentUser).then(profile => {
+      state.user = profile;
       enterApp();
     });
     return;
@@ -2542,23 +2568,8 @@ auth.onAuthStateChanged(user => {
 
   if (appInitialized) return;
 
-  db.collection('users').doc(user.uid).get().then(doc => {
-    if (doc.exists) {
-      state.user = { ...doc.data(), email: user.email };
-    } else {
-      state.user = {
-        name: user.displayName || user.email.split('@')[0],
-        email: user.email,
-        role: 'User'
-      };
-    }
-    enterApp();
-  }).catch(() => {
-    state.user = {
-      name: user.displayName || user.email.split('@')[0],
-      email: user.email,
-      role: 'User'
-    };
+  loadUserProfile(user).then(profile => {
+    state.user = profile;
     enterApp();
   });
 });
