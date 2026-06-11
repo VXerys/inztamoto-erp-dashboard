@@ -396,7 +396,7 @@ export default function InztamotoApp() {
                     <thead>
                       <tr>
                         <th>Gambar</th><th>No. Transaksi</th><th>Tanggal</th><th>Produk</th>
-                        <th>Qty</th><th>Channel</th><th>Pendapatan</th><th>Keuntungan</th><th>Aksi</th>
+                        <th>Qty</th><th>Channel</th><th>Ekspedisi</th><th>Alamat</th><th>Pendapatan</th><th>Keuntungan</th><th>Aksi</th>
                       </tr>
                     </thead>
                     <tbody id="saleBody"></tbody>

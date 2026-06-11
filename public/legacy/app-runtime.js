@@ -44,6 +44,8 @@ const SKU_MAP = {
 
 const CHANNELS = ['Website', 'Shopee', 'Tokopedia', 'WhatsApp', 'Offline Store'];
 
+const EXPEDITIONS = ['Shopee Express', 'J&T', 'JNE', 'SiCepat', 'Anteraja', 'Ninja', 'POS', 'Lainnya'];
+
 const SEED_CATEGORIES = [
   { name: 'Tail Bag', slug: 'tail-bag', description: 'Tas bagasi belakang motor' },
   { name: 'Side Bag', slug: 'side-bag', description: 'Tas samping motor' },
@@ -316,6 +318,17 @@ function channelBadge(ch) {
   const key = ch.toLowerCase().replace(/ /g, '_');
   const m = { website: 'badge-website', shopee: 'badge-shopee', tokopedia: 'badge-tokopedia', whatsapp: 'badge-whatsapp', offline_store: 'badge-offline_store' };
   return `<span class="badge ${m[key] || 'badge-offline_store'}">${ch}</span>`;
+}
+
+function expeditionBadge(exp) {
+  if (!exp) return '';
+  const key = exp.toLowerCase().replace(/[^a-z0-9]/g, '_');
+  const m = {
+    shopee_express: 'badge-shopee', j_t: 'badge-tokopedia', jne: 'badge-website',
+    sicepat: 'badge-in_progress', anteraja: 'badge-qc', ninja: 'badge-pre_order',
+    pos: 'badge-pending', lainnya: 'badge-offline_store'
+  };
+  return `<span class="badge ${m[key] || 'badge-offline_store'}">${exp}</span>`;
 }
 
 /* =========================================================
@@ -1443,16 +1456,44 @@ window.doEditStockMovement = async function (id) {
    ========================================================= */
 function renderSales() {
   let list = [...state.sales].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  if (state.sale.search) { const q = state.sale.search.toLowerCase(); list = list.filter(s => (s.txNumber || '').toLowerCase().includes(q) || (s.productName || '').toLowerCase().includes(q) || (s.customer || '').toLowerCase().includes(q)) }
+  if (state.sale.search) {
+    const q = state.sale.search.toLowerCase();
+    list = list.filter(s =>
+      (s.txNumber   || '').toLowerCase().includes(q) ||
+      (s.productName|| '').toLowerCase().includes(q) ||
+      (s.customer   || '').toLowerCase().includes(q) ||
+      (s.channel    || '').toLowerCase().includes(q) ||
+      (s.city       || '').toLowerCase().includes(q) ||
+      (s.district   || '').toLowerCase().includes(q) ||
+      (s.expedition || '').toLowerCase().includes(q)
+    );
+  }
   if (state.sale.channel !== 'all') list = list.filter(s => s.channel === state.sale.channel);
-  const { page, perPage } = state.sale; const total = Math.max(1, Math.ceil(list.length / perPage));
+  const { page, perPage } = state.sale;
+  const total = Math.max(1, Math.ceil(list.length / perPage));
   if (page > total) state.sale.page = total;
   const start = (state.sale.page - 1) * perPage, items = list.slice(start, start + perPage);
 
   $('#saleBody').innerHTML = items.length ? items.map(s => {
     const p = state.products.find(x => x.id === s.productId);
-    return `<tr><td>${prodImg(p, 32)}</td><td><strong style="color:var(--primary-dark)">${s.txNumber}</strong></td><td>${s.date}</td><td>${s.productName}<br><small style="color:var(--text-muted)">${s.sku}</small></td><td>${s.quantity}</td><td>${channelBadge(s.channel)}</td><td style="font-weight:600">${fmtRp(s.revenue)}</td><td style="color:var(--success);font-weight:600">${fmtRp(s.profit)}</td><td><div class="action-btns"><button class="action-btn del" title="Hapus" onclick="deleteSale('${s.id}')"><i class="fas fa-trash"></i></button></div></td></tr>`;
-  }).join('') : `<tr><td colspan="9"><div class="empty-state"><i class="fas fa-receipt"></i><h4>Belum ada data penjualan</h4></div></td></tr>`;
+    // Use realRevenue/realProfit for new sales, fallback to revenue/profit for old
+    const displayRevenue = s.realRevenue !== undefined ? s.realRevenue : (s.revenue || 0);
+    const displayProfit  = s.realProfit  !== undefined ? s.realProfit  : (s.profit  || 0);
+    const addressStr = [s.district, s.city].filter(Boolean).join(', ') || '-';
+    return `<tr>
+      <td>${prodImg(p, 32)}</td>
+      <td><strong style="color:var(--primary-dark)">${s.txNumber}</strong></td>
+      <td>${s.date}</td>
+      <td>${s.productName}<br><small style="color:var(--text-muted)">${s.sku}</small></td>
+      <td>${s.quantity}</td>
+      <td>${channelBadge(s.channel || '')}</td>
+      <td>${s.expedition ? expeditionBadge(s.expedition) : '<span style="color:var(--text-muted);font-size:12px">—</span>'}</td>
+      <td style="font-size:12px;color:var(--text-muted)">${addressStr}</td>
+      <td style="font-weight:600">${fmtRp(displayRevenue)}</td>
+      <td style="color:var(--success);font-weight:600">${fmtRp(displayProfit)}</td>
+      <td><div class="action-btns"><button class="action-btn del" title="Hapus" onclick="deleteSale('${s.id}')"><i class="fas fa-trash"></i></button></div></td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="11"><div class="empty-state"><i class="fas fa-receipt"></i><h4>Belum ada data penjualan</h4></div></td></tr>`;
 
   const end = Math.min(start + perPage, list.length);
   $('#saleInfo').textContent = list.length > 0 ? `Menampilkan ${start + 1}–${end} dari ${list.length} transaksi` : '';
@@ -1470,16 +1511,69 @@ let saleSearchTimeout;
  $('#addSaleBtn').addEventListener('click', () => {
   const opts = state.products.filter(p => p.stock > 0).map(p => `<option value="${p.id}">${p.name} (${p.sku}) — ${fmtRp(p.sellingPrice)}</option>`).join('');
   const chOpts = CHANNELS.map(c => `<option value="${c}">${c}</option>`).join('');
-  openModal('Catat Penjualan', `<div class="form-group"><label>Produk</label><select class="form-input" id="fSaleProd" onchange="updateSaleForm()">${opts}</select></div><div class="form-row"><div class="form-group"><label>Jumlah</label><input type="number" class="form-input" id="fSaleQty" value="1" min="1" oninput="updateSaleForm()"></div><div class="form-group"><label>Channel</label><select class="form-input" id="fSaleChannel">${chOpts}</select></div></div><div class="form-row"><div class="form-group"><label>Pelanggan</label><input type="text" class="form-input" id="fSaleCustomer" placeholder="Nama pelanggan"></div><div class="form-group"><label>Tanggal</label><input type="date" class="form-input" id="fSaleDate" value="${today}"></div></div><div style="padding:10px 14px;background:var(--primary-light);border-radius:var(--radius-sm);font-size:13px;display:flex;gap:20px"><span>Pendapatan: <strong id="fSaleRev">Rp 0</strong></span><span>Keuntungan: <strong id="fSaleProfit" style="color:var(--success)">Rp 0</strong></span></div><div class="form-group" style="margin-top:14px"><label>Catatan</label><input type="text" class="form-input" id="fSaleNotes" placeholder="Opsional"></div>`, `<button class="btn btn-outline btn-sm" onclick="closeModal()">Batal</button><button class="btn btn-primary btn-sm" onclick="saveSale()"><i class="fas fa-check"></i>Simpan</button>`);
+  const expOpts = EXPEDITIONS.map(e => `<option value="${e}">${e}</option>`).join('');
+  openModal('Catat Penjualan', `
+    <div class="form-group"><label>Produk</label><select class="form-input" id="fSaleProd" onchange="updateSaleForm()">${opts}</select></div>
+    <div class="form-row">
+      <div class="form-group"><label>Jumlah</label><input type="number" class="form-input" id="fSaleQty" value="1" min="1" oninput="updateSaleForm()"></div>
+      <div class="form-group"><label>Channel</label><select class="form-input" id="fSaleChannel">${chOpts}</select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Harga Default <small style="color:var(--text-muted);font-weight:400">(per unit)</small></label><input type="text" class="form-input" id="fSaleDefaultPrice" readonly style="background:var(--primary-light)"></div>
+      <div class="form-group"><label>Harga Real Marketplace <small style="color:var(--text-muted);font-weight:400">(per unit)</small></label><input type="number" class="form-input" id="fSaleRealPrice" min="0" oninput="updateSaleForm()" placeholder="Kosongkan = pakai harga default"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Kecamatan</label><input type="text" class="form-input" id="fSaleDistrict" placeholder="Kecamatan tujuan"></div>
+      <div class="form-group"><label>Kota</label><input type="text" class="form-input" id="fSaleCity" placeholder="Kota tujuan"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Ekspedisi</label><select class="form-input" id="fSaleExpedition"><option value="">— Pilih Ekspedisi —</option>${expOpts}</select></div>
+      <div class="form-group"><label>Pelanggan</label><input type="text" class="form-input" id="fSaleCustomer" placeholder="Nama pelanggan"></div>
+    </div>
+    <div class="form-group"><label>Tanggal</label><input type="date" class="form-input" id="fSaleDate" value="${today}"></div>
+    <div style="padding:12px 14px;background:var(--primary-light);border-radius:var(--radius-sm);font-size:13px;margin-bottom:14px;display:grid;grid-template-columns:1fr 1fr;gap:6px 20px">
+      <span>Pendapatan Standar: <strong id="fSaleStdRev">Rp 0</strong></span>
+      <span>Pendapatan Real: <strong id="fSaleRev">Rp 0</strong></span>
+      <span>Modal (HPP): <strong id="fSaleModal">Rp 0</strong></span>
+      <span>Keuntungan Real: <strong id="fSaleProfit" style="color:var(--success)">Rp 0</strong></span>
+      <span style="grid-column:1/-1">Selisih Marketplace: <strong id="fSaleDiff">Rp 0</strong></span>
+    </div>
+    <div class="form-group"><label>Catatan</label><input type="text" class="form-input" id="fSaleNotes" placeholder="Opsional"></div>
+  `, `<button class="btn btn-outline btn-sm" onclick="closeModal()">Batal</button><button class="btn btn-primary btn-sm" onclick="saveSale()"><i class="fas fa-check"></i>Simpan</button>`);
   setTimeout(updateSaleForm, 50);
 });
 
 window.updateSaleForm = function () {
   const pid = $('#fSaleProd').value, p = state.products.find(x => x.id === pid); if (!p) return;
   const qty = parseInt($('#fSaleQty').value) || 1;
-  const productProfit = (p.profit !== undefined && p.profit !== null) ? p.profit : calcProfit(p.sellingPrice, p.costPrice);
-  $('#fSaleRev').textContent = fmtRp(p.sellingPrice * qty);
-  $('#fSaleProfit').textContent = fmtRp(productProfit * qty);
+
+  // Isi harga default
+  const defPriceEl = $('#fSaleDefaultPrice');
+  if (defPriceEl) defPriceEl.value = fmtRp(p.sellingPrice);
+
+  // Harga real: ambil dari input, jika kosong pakai sellingPrice
+  const realPriceInput = $('#fSaleRealPrice');
+  const realUnitPrice = (realPriceInput && realPriceInput.value !== '')
+    ? (parsePrice(realPriceInput.value) || p.sellingPrice)
+    : p.sellingPrice;
+  if (realPriceInput && realPriceInput.value === '') realPriceInput.placeholder = fmtRp(p.sellingPrice);
+
+  const standardRevenue = p.sellingPrice * qty;
+  const realRevenue     = realUnitPrice * qty;
+  const modal           = (p.costPrice || 0) * qty;
+  const realProfit      = realRevenue - modal;
+  const diff            = realRevenue - standardRevenue;
+
+  const set = (id, val) => { const el = $(id); if (el) el.textContent = fmtRp(val); };
+  set('#fSaleStdRev', standardRevenue);
+  set('#fSaleRev', realRevenue);
+  set('#fSaleModal', modal);
+  set('#fSaleProfit', realProfit);
+  const diffEl = $('#fSaleDiff');
+  if (diffEl) {
+    diffEl.textContent = fmtRp(diff);
+    diffEl.style.color = diff < 0 ? 'var(--danger)' : diff > 0 ? 'var(--success)' : '';
+  }
 };
 
 window.saveSale = async function () {
@@ -1488,28 +1582,59 @@ window.saveSale = async function () {
   const qty = parseInt($('#fSaleQty').value) || 1;
   if (p.stock < qty) { toast('Stok tidak mencukupi (tersedia: ' + p.stock + ')', 'error'); return; }
 
+  const realPriceInput = $('#fSaleRealPrice');
+  const realUnitPrice = (realPriceInput && realPriceInput.value !== '')
+    ? (parsePrice(realPriceInput.value) || p.sellingPrice)
+    : p.sellingPrice;
+
+  const standardRevenue      = p.sellingPrice * qty;
+  const realRevenue          = realUnitPrice * qty;
+  const modal                = (p.costPrice || 0) * qty;
+  const realProfit           = realRevenue - modal;
+  const marketplaceDifference = realRevenue - standardRevenue;
+
+  const channel    = $('#fSaleChannel').value;
+  const expedition = ($('#fSaleExpedition') ? $('#fSaleExpedition').value : '') || '';
+  const district   = ($('#fSaleDistrict') ? $('#fSaleDistrict').value : '').trim();
+  const city       = ($('#fSaleCity') ? $('#fSaleCity').value : '').trim();
+  const saleDate   = $('#fSaleDate').value;
+
   try {
     const txNum = state.sales.length > 0 ? parseInt((state.sales[0].txNumber || 'TXN-00100').split('-')[1]) + 1 : 1001;
-    const saleDate = $('#fSaleDate').value;
 
     const newStock = p.stock - qty;
     const newStatus = newStock <= 0 ? 'out_of_stock' : newStock <= 5 ? 'low_stock' : 'active';
     await db.collection('products').doc(pid).update({ stock: newStock, status: newStatus, updatedAt: new Date().toISOString() });
 
-    await db.collection('sales').add({
+    const saleDoc = {
       txNumber: 'TXN-' + String(txNum).padStart(5, '0'),
       date: saleDate, productId: pid, productName: p.name, sku: p.sku,
-      quantity: qty, costPrice: p.costPrice, sellingPrice: p.sellingPrice,
-      revenue: p.sellingPrice * qty,
-      profit: calcProfit(p.sellingPrice, p.costPrice) * qty,
-      channel: $('#fSaleChannel').value, customer: $('#fSaleCustomer').value || '-',
+      quantity: qty,
+      costPrice: p.costPrice, sellingPrice: p.sellingPrice,
+      realUnitPrice: realUnitPrice,
+      standardRevenue: standardRevenue,
+      realRevenue: realRevenue,
+      revenue: realRevenue,               // compat: use realRevenue for new sales
+      modal: modal,
+      realProfit: realProfit,
+      profit: realProfit,                 // compat: use realProfit for new sales
+      marketplaceDifference: marketplaceDifference,
+      channel: channel,
+      expedition: expedition,
+      district: district,
+      city: city,
+      customer: $('#fSaleCustomer').value || '-',
       notes: $('#fSaleNotes').value,
       createdAt: new Date().toISOString()
-    });
+    };
+    await db.collection('sales').add(sanitize(saleDoc));
 
+    const moveNote = expedition
+      ? 'Penjualan ' + channel + ' - ' + expedition
+      : 'Penjualan ' + channel;
     await db.collection('stock_movements').add({
       date: saleDate, productId: pid, productName: p.name, sku: p.sku,
-      type: 'out', qty, note: 'Penjualan ' + $('#fSaleChannel').value
+      type: 'out', qty: qty, note: moveNote, createdAt: new Date().toISOString()
     });
 
     toast('Penjualan berhasil dicatat', 'success');
