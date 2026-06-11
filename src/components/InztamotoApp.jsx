@@ -90,6 +90,9 @@ export default function InztamotoApp() {
             <a href="#" className="nav-item" data-page="belanjaProduksi">
               <i className="fas fa-shopping-basket"></i>Belanja Produksi
             </a>
+            <a href="#" className="nav-item" data-page="gajiKaryawan">
+              <i className="fas fa-money-bill-wave"></i>Gaji Karyawan
+            </a>
             <a href="#" className="nav-item" data-page="inventaris">
               <i className="fas fa-boxes-stacked"></i>Stock Control
               <span className="badge-dot" id="criticalDot" style={{ display: 'none' }}></span>
@@ -314,6 +317,11 @@ export default function InztamotoApp() {
             {/* Belanja Produksi */}
             <div className="page" id="pageBelanjaProduksi">
               {/* Rendered dynamically by renderBelanjaProduksi() in app-runtime.js */}
+            </div>
+
+            {/* Gaji Karyawan */}
+            <div className="page" id="pageGajiKaryawan">
+              {/* Rendered dynamically by renderPayrolls() in app-runtime.js */}
             </div>
 
             {/* Inventaris */}

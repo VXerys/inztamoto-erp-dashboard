@@ -75,12 +75,14 @@ const state = {
   production: [],
   stockMovements: [],
   productionPurchases: [],
+  payrolls: [],
   users: [...DEMO_USERS],
   currentPage: 'dashboard',
   prod: { search: '', filter: 'all', catFilter: 'all', sort: { field: 'sku', dir: 'asc' }, page: 1, perPage: 8 },
   prodOrder: { search: '', filter: 'all', page: 1, perPage: 8 },
   sale: { search: '', channel: 'all', page: 1, perPage: 8 },
   pp: { search: '', week: '', status: 'all', page: 1, perPage: 10 },
+  payroll: { search: '', period: '', status: 'all', page: 1, perPage: 10 },
   charts: {},
   tempImageData: null,
   listeners: []
@@ -450,6 +452,12 @@ function initFirebaseListeners() {
   }, err => console.error('Production purchases listener error:', err));
   state.listeners.push(unsubPP);
 
+  const unsubPayroll = db.collection('payrolls').orderBy('paymentDate', 'desc').onSnapshot(snap => {
+    state.payrolls = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (state.currentPage === 'gajiKaryawan') renderPayrolls();
+  }, err => console.error('Payrolls listener error:', err));
+  state.listeners.push(unsubPayroll);
+
   seedIfEmpty();
 }
 
@@ -462,6 +470,7 @@ function renderCurrentPage() {
     case 'penjualan': renderSales(); break;
     case 'laporan': renderReports(); break;
     case 'belanjaProduksi': renderBelanjaProduksi(); break;
+    case 'gajiKaryawan': renderPayrolls(); break;
   }
 }
 
@@ -521,7 +530,7 @@ const TITLES = {
   dashboard: 'Dashboard', produk: 'Produk', kategori: 'Kategori',
   produksi: 'Produksi', inventaris: 'Stock Control', penjualan: 'Penjualan',
   laporan: 'Laporan', pengguna: 'Pengguna', pengaturan: 'Pengaturan',
-  belanjaProduksi: 'Belanja Produksi'
+  belanjaProduksi: 'Belanja Produksi', gajiKaryawan: 'Gaji Karyawan'
 };
 
 function navigateTo(page) {
@@ -1974,6 +1983,302 @@ window.doCloseWeek = async function(weekKey) {
     });
     await batch.commit();
     toast(weekKeyLabel(weekKey) + ' berhasil ditutup (' + openItems.length + ' item)', 'success');
+    closeModal();
+  } catch (err) { toast('Gagal: ' + err.message, 'error'); }
+};
+
+/* =========================================================
+   GAJI KARYAWAN — Phase 4B
+   ========================================================= */
+
+// ---- Role helpers ----
+function getCurrentUserRole() {
+  return (state.user && state.user.role ? state.user.role : '').toLowerCase();
+}
+
+function canAccessPayrollRecord(record) {
+  const role = getCurrentUserRole();
+  if (role === 'owner') return true;
+  // Admin can only see employee/staff — treat missing employeeRole as 'employee'
+  const empRole = (record.employeeRole || 'employee').toLowerCase();
+  return empRole === 'employee' || empRole === 'staff';
+}
+
+function getPayrollPeriods() {
+  const periods = new Set();
+  state.payrolls.forEach(p => { if (p.period) periods.add(p.period); });
+  return [...periods].sort().reverse();
+}
+
+function payrollRoleBadge(empRole) {
+  const r = (empRole || 'employee').toLowerCase();
+  const m = { owner: 'badge-website', admin: 'badge-in_progress', employee: 'badge-active', staff: 'badge-qc' };
+  const l = { owner: 'Owner', admin: 'Admin', employee: 'Karyawan', staff: 'Staff' };
+  return `<span class="badge ${m[r] || 'badge-active'}">${l[r] || empRole}</span>`;
+}
+
+function payrollStatusBadge(s) {
+  return s === 'paid'
+    ? `<span class="badge badge-active">Lunas</span>`
+    : `<span class="badge badge-pending">Belum Lunas</span>`;
+}
+
+function renderPayrolls() {
+  const container = $('#pageGajiKaryawan');
+  if (!container) return;
+
+  const userRole = getCurrentUserRole();
+  if (userRole !== 'owner' && userRole !== 'admin') {
+    container.innerHTML = `<div class="empty-state"><i class="fas fa-lock"></i><h4>Akses ditolak</h4><p>Halaman ini hanya untuk Owner dan Admin</p></div>`;
+    return;
+  }
+
+  const { search, period, status, page, perPage } = state.payroll;
+
+  let list = state.payrolls.filter(canAccessPayrollRecord);
+
+  if (search) {
+    const q = search.toLowerCase();
+    list = list.filter(p =>
+      (p.employeeName || '').toLowerCase().includes(q) ||
+      (p.note         || '').toLowerCase().includes(q) ||
+      (p.period       || '').toLowerCase().includes(q)
+    );
+  }
+  if (period) list = list.filter(p => p.period === period);
+  if (status !== 'all') list = list.filter(p => p.status === status);
+
+  const total = Math.max(1, Math.ceil(list.length / perPage));
+  if (page > total) state.payroll.page = 1;
+  const start = (state.payroll.page - 1) * perPage;
+  const items = list.slice(start, start + perPage);
+
+  const periodOpts = getPayrollPeriods()
+    .map(p => `<option value="${p}" ${p === period ? 'selected' : ''}>${p}</option>`).join('');
+
+  const toolbar = `
+    <div class="table-toolbar">
+      <div class="table-search"><i class="fas fa-search"></i><input type="text" class="form-input" placeholder="Cari nama karyawan..." value="${search}" oninput="onPayrollSearch(this.value)"></div>
+      <div class="table-filter">
+        <select class="form-input" onchange="onPayrollPeriod(this.value)">
+          <option value="">Semua Periode</option>${periodOpts}
+        </select>
+      </div>
+      <div class="table-filter">
+        <select class="form-input" onchange="onPayrollStatus(this.value)">
+          <option value="all" ${status === 'all' ? 'selected' : ''}>Semua Status</option>
+          <option value="unpaid" ${status === 'unpaid' ? 'selected' : ''}>Belum Lunas</option>
+          <option value="paid" ${status === 'paid' ? 'selected' : ''}>Lunas</option>
+        </select>
+      </div>
+      <div style="margin-left:auto">
+        <button class="btn btn-primary btn-sm" onclick="openAddPayrollModal()"><i class="fas fa-plus"></i>Tambah Gaji</button>
+      </div>
+    </div>`;
+
+  const rows = items.length
+    ? items.map(p => {
+        const actions = `<div class="action-btns">
+          <button class="action-btn" title="Edit" onclick="editPayroll('${p.id}')"><i class="fas fa-pen"></i></button>
+          <button class="action-btn del" title="Hapus" onclick="confirmDeletePayroll('${p.id}')"><i class="fas fa-trash"></i></button>
+        </div>`;
+        return `<tr>
+          <td><strong>${p.employeeName || '-'}</strong></td>
+          <td>${payrollRoleBadge(p.employeeRole)}</td>
+          <td>${p.period || '-'}</td>
+          <td>${p.paymentDate || '-'}</td>
+          <td>${fmtRp(p.baseSalary)}</td>
+          <td style="color:var(--success)">${fmtRp(p.bonus || 0)}</td>
+          <td style="color:var(--danger)">${fmtRp(p.deduction || 0)}</td>
+          <td style="font-weight:700">${fmtRp(p.totalPaid)}</td>
+          <td>${payrollStatusBadge(p.status)}</td>
+          <td style="color:var(--text-muted);font-size:12px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.note || ''}">${p.note || '-'}</td>
+          <td>${actions}</td>
+        </tr>`;
+      }).join('')
+    : `<tr><td colspan="11"><div class="empty-state"><i class="fas fa-money-bill-wave"></i><h4>Belum ada data gaji</h4><p>Tambahkan data penggajian</p></div></td></tr>`;
+
+  let pag = `<button ${state.payroll.page <= 1 ? 'disabled' : ''} onclick="goPayrollPage(${state.payroll.page - 1})"><i class="fas fa-chevron-left"></i></button>`;
+  for (let i = 1; i <= Math.min(total, 10); i++) {
+    pag += `<button class="${i === state.payroll.page ? 'active' : ''}" onclick="goPayrollPage(${i})">${i}</button>`;
+  }
+  pag += `<button ${state.payroll.page >= total ? 'disabled' : ''} onclick="goPayrollPage(${state.payroll.page + 1})"><i class="fas fa-chevron-right"></i></button>`;
+
+  container.innerHTML = `
+    <div class="card">
+      ${toolbar}
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead><tr>
+            <th>Nama Karyawan</th><th>Jabatan</th><th>Periode</th><th>Tgl Bayar</th>
+            <th>Gaji Pokok</th><th>Bonus</th><th>Potongan</th><th>Total</th>
+            <th>Status</th><th>Catatan</th><th>Aksi</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <div class="table-footer">
+        <span>${list.length > 0 ? `Menampilkan ${start + 1}–${Math.min(start + perPage, list.length)} dari ${list.length}` : ''}</span>
+        <div class="pagination">${pag}</div>
+      </div>
+    </div>`;
+}
+
+window.onPayrollSearch = function(val) { state.payroll.search = val; state.payroll.page = 1; renderPayrolls(); };
+window.onPayrollPeriod = function(val) { state.payroll.period = val; state.payroll.page = 1; renderPayrolls(); };
+window.onPayrollStatus = function(val) { state.payroll.status = val; state.payroll.page = 1; renderPayrolls(); };
+window.goPayrollPage  = function(n)   { state.payroll.page = n; renderPayrolls(); };
+
+// ---- Payroll form HTML ----
+function payrollFormHTML(p) {
+  const userRole = getCurrentUserRole();
+  const v = p || { employeeName: '', employeeRole: 'employee', period: new Date().toISOString().substring(0,7), paymentDate: today, baseSalary: 0, bonus: 0, deduction: 0, totalPaid: 0, status: 'unpaid', note: '' };
+
+  // Role options depend on current user's access
+  const allRoleOpts = [
+    { val: 'owner',    label: 'Owner'    },
+    { val: 'admin',    label: 'Admin'    },
+    { val: 'employee', label: 'Karyawan' },
+    { val: 'staff',    label: 'Staff'    }
+  ];
+  const visibleRoles = userRole === 'owner' ? allRoleOpts : allRoleOpts.filter(r => r.val === 'employee' || r.val === 'staff');
+  const roleOpts = visibleRoles.map(r => `<option value="${r.val}" ${v.employeeRole === r.val ? 'selected' : ''}>${r.label}</option>`).join('');
+
+  return `
+    <div class="form-row">
+      <div class="form-group"><label>Nama Karyawan</label><input type="text" class="form-input" id="fPayrollName" value="${v.employeeName || ''}" placeholder="Nama lengkap" required></div>
+      <div class="form-group"><label>Jabatan</label><select class="form-input" id="fPayrollRole">${roleOpts}</select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Periode <small style="color:var(--text-muted);font-weight:400">(YYYY-MM)</small></label><input type="month" class="form-input" id="fPayrollPeriod" value="${v.period || ''}"></div>
+      <div class="form-group"><label>Tanggal Bayar</label><input type="date" class="form-input" id="fPayrollDate" value="${v.paymentDate || today}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Gaji Pokok (Rp)</label><input type="number" class="form-input" id="fPayrollBase" value="${v.baseSalary || 0}" min="0" oninput="calcPayrollTotal()"></div>
+      <div class="form-group"><label>Bonus (Rp)</label><input type="number" class="form-input" id="fPayrollBonus" value="${v.bonus || 0}" min="0" oninput="calcPayrollTotal()"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Potongan (Rp)</label><input type="number" class="form-input" id="fPayrollDeduction" value="${v.deduction || 0}" min="0" oninput="calcPayrollTotal()"></div>
+      <div class="form-group"><label>Status</label><select class="form-input" id="fPayrollStatus"><option value="unpaid" ${v.status === 'unpaid' ? 'selected' : ''}>Belum Lunas</option><option value="paid" ${v.status === 'paid' ? 'selected' : ''}>Lunas</option></select></div>
+    </div>
+    <div style="padding:10px 14px;background:var(--primary-light);border-radius:var(--radius-sm);font-size:13px;margin-bottom:16px">
+      Total Dibayar: <strong id="fPayrollTotalDisplay">${fmtRp(v.totalPaid || 0)}</strong>
+    </div>
+    <div class="form-group"><label>Catatan</label><input type="text" class="form-input" id="fPayrollNote" value="${v.note || ''}" placeholder="Opsional"></div>`;
+}
+
+window.calcPayrollTotal = function() {
+  const base = parsePrice($('#fPayrollBase').value);
+  const bonus = parsePrice($('#fPayrollBonus').value);
+  const ded = parsePrice($('#fPayrollDeduction').value);
+  const el = $('#fPayrollTotalDisplay');
+  if (el) el.textContent = fmtRp(base + bonus - ded);
+};
+
+// ---- Role guard helper ----
+function isPayrollRoleBlocked(empRole) {
+  const userRole = getCurrentUserRole();
+  if (userRole === 'owner') return false;
+  const r = (empRole || '').toLowerCase();
+  return r === 'owner' || r === 'admin';
+}
+
+// ---- Add payroll ----
+window.openAddPayrollModal = function() {
+  openModal('Tambah Data Gaji', payrollFormHTML(), `
+    <button class="btn btn-outline btn-sm" onclick="closeModal()">Batal</button>
+    <button class="btn btn-primary btn-sm" onclick="savePayroll()"><i class="fas fa-check"></i>Simpan</button>`);
+};
+
+window.savePayroll = async function() {
+  const name = ($('#fPayrollName') ? $('#fPayrollName').value : '').trim();
+  if (!name) { toast('Nama karyawan wajib diisi', 'warning'); return; }
+  const empRole = $('#fPayrollRole') ? $('#fPayrollRole').value : 'employee';
+  if (isPayrollRoleBlocked(empRole)) {
+    toast('Admin tidak dapat membuat data gaji untuk peran Owner atau Admin', 'error');
+    return;
+  }
+  const base = parsePrice($('#fPayrollBase').value);
+  const bonus = parsePrice($('#fPayrollBonus').value);
+  const ded = parsePrice($('#fPayrollDeduction').value);
+  const doc = sanitize({
+    employeeName: name,
+    employeeRole: empRole,
+    period: ($('#fPayrollPeriod') ? $('#fPayrollPeriod').value : ''),
+    paymentDate: ($('#fPayrollDate') ? $('#fPayrollDate').value : today),
+    baseSalary: base, bonus: bonus, deduction: ded,
+    totalPaid: base + bonus - ded,
+    status: ($('#fPayrollStatus') ? $('#fPayrollStatus').value : 'unpaid'),
+    note: ($('#fPayrollNote') ? $('#fPayrollNote').value.trim() : ''),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+  try {
+    await db.collection('payrolls').add(doc);
+    toast('Data gaji disimpan', 'success');
+    closeModal();
+  } catch (err) { toast('Gagal: ' + err.message, 'error'); }
+};
+
+// ---- Edit payroll ----
+window.editPayroll = function(id) {
+  const p = state.payrolls.find(x => x.id === id);
+  if (!p) { toast('Data tidak ditemukan', 'error'); return; }
+  if (!canAccessPayrollRecord(p)) { toast('Anda tidak punya akses untuk mengedit data ini', 'error'); return; }
+  openModal('Edit Data Gaji', payrollFormHTML(p), `
+    <button class="btn btn-outline btn-sm" onclick="closeModal()">Batal</button>
+    <button class="btn btn-primary btn-sm" onclick="saveEditPayroll('${id}')"><i class="fas fa-check"></i>Update</button>`);
+};
+
+window.saveEditPayroll = async function(id) {
+  const p = state.payrolls.find(x => x.id === id);
+  if (!p || !canAccessPayrollRecord(p)) { toast('Akses ditolak', 'error'); return; }
+  const name = ($('#fPayrollName') ? $('#fPayrollName').value : '').trim();
+  if (!name) { toast('Nama karyawan wajib diisi', 'warning'); return; }
+  const empRole = $('#fPayrollRole') ? $('#fPayrollRole').value : 'employee';
+  if (isPayrollRoleBlocked(empRole)) {
+    toast('Admin tidak dapat menyimpan data gaji untuk peran Owner atau Admin', 'error');
+    return;
+  }
+  const base = parsePrice($('#fPayrollBase').value);
+  const bonus = parsePrice($('#fPayrollBonus').value);
+  const ded = parsePrice($('#fPayrollDeduction').value);
+  const updates = sanitize({
+    employeeName: name, employeeRole: empRole,
+    period: ($('#fPayrollPeriod') ? $('#fPayrollPeriod').value : ''),
+    paymentDate: ($('#fPayrollDate') ? $('#fPayrollDate').value : today),
+    baseSalary: base, bonus: bonus, deduction: ded,
+    totalPaid: base + bonus - ded,
+    status: ($('#fPayrollStatus') ? $('#fPayrollStatus').value : 'unpaid'),
+    note: ($('#fPayrollNote') ? $('#fPayrollNote').value.trim() : ''),
+    updatedAt: new Date().toISOString()
+  });
+  try {
+    await db.collection('payrolls').doc(id).update(updates);
+    toast('Data gaji diupdate', 'success');
+    closeModal();
+  } catch (err) { toast('Gagal: ' + err.message, 'error'); }
+};
+
+// ---- Delete payroll ----
+window.confirmDeletePayroll = function(id) {
+  const p = state.payrolls.find(x => x.id === id);
+  if (!p) return;
+  if (!canAccessPayrollRecord(p)) { toast('Anda tidak punya akses untuk menghapus data ini', 'error'); return; }
+  openModal('Konfirmasi Hapus',
+    `<div style="text-align:center;padding:10px 0">
+       <i class="fas fa-trash" style="font-size:40px;color:var(--danger);opacity:.6;margin-bottom:14px;display:block"></i>
+       <p style="font-size:15px;font-weight:600">Hapus data gaji "${p.employeeName}"?</p>
+       <p style="font-size:13px;color:var(--text-muted);margin-top:6px">Periode: ${p.period} — ${fmtRp(p.totalPaid)}</p>
+     </div>`,
+    `<button class="btn btn-outline btn-sm" onclick="closeModal()">Batal</button>
+     <button class="btn btn-danger btn-sm" onclick="doDeletePayroll('${id}')"><i class="fas fa-trash"></i>Hapus</button>`);
+};
+
+window.doDeletePayroll = async function(id) {
+  try {
+    await db.collection('payrolls').doc(id).delete();
+    toast('Data gaji dihapus', 'success');
     closeModal();
   } catch (err) { toast('Gagal: ' + err.message, 'error'); }
 };
