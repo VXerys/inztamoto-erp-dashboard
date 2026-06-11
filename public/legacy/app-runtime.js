@@ -142,22 +142,20 @@ function generateSKU(categoryId, excludeProductId) {
     prefix = 'INZ-' + getCategorySkuCode(cat);
   }
 
-  // Kumpulkan semua angka sequence yang sudah dipakai
-  var usedNums = {};
+  // Cari sequence tertinggi yang pernah dipakai (termasuk produk yang sudah dihapus tidak dicek,
+  // tapi produk aktif dijadikan batas bawah). Pakai max + 1 agar SKU tidak pernah reuse.
+  var max = 0;
   state.products.forEach(function(p) {
     if (excludeProductId && p.id === excludeProductId) return;
     if (p.sku && p.sku.startsWith(prefix + '-')) {
       var parts = p.sku.split('-');
       var num = parseInt(parts[parts.length - 1]);
-      if (!isNaN(num)) usedNums[num] = true;
+      if (!isNaN(num) && num > max) max = num;
     }
   });
 
-  // Cari sequence terkecil yang belum dipakai
-  var seq = 1;
-  while (usedNums[seq]) seq++;
-
-  return prefix + '-' + String(seq).padStart(2, '0');
+  // max + 1: monotonic, SKU gaps are acceptable, prevents SKU reuse after delete
+  return prefix + '-' + String(max + 1).padStart(2, '0');
 }
 
 function isSkuUnique(sku, excludeProductId) {
