@@ -625,6 +625,66 @@ function formatChartPeriodData(groupedData, period, lookback) {
 }
 
 /* =========================================================
+   KALKULASI HELPERS — Phase 5B
+   ========================================================= */
+
+/**
+ * getSaleRevenue(sale) — ambil pendapatan per transaksi.
+ * Prioritas: sale.revenue (sudah di-set saat save) → sellingPrice * qty → 0
+ */
+function getSaleRevenue(sale) {
+  const rev = sale.revenue !== undefined ? sale.revenue : null;
+  if (rev !== null && !isNaN(rev)) return rev;
+  // fallback: sellingPrice * quantity
+  return ((sale.sellingPrice || 0) * (sale.quantity || 0)) || 0;
+}
+
+/**
+ * getSaleProfit(sale) — ambil profit per transaksi.
+ * Prioritas: sale.profit (realProfit sudah di-set saat save) → (sellingPrice - costPrice) * qty → 0
+ */
+function getSaleProfit(sale) {
+  const pr = sale.profit !== undefined ? sale.profit : null;
+  if (pr !== null && !isNaN(pr)) return pr;
+  // fallback: (sellingPrice - costPrice) * qty
+  const sp = sale.sellingPrice || 0;
+  const cp = sale.costPrice || 0;
+  return Math.max(0, (sp - cp) * (sale.quantity || 0));
+}
+
+/**
+ * getProductionExpenseTotal(monthPrefix) — total belanja produksi bulan tertentu.
+ * monthPrefix: "YYYY-MM". Jika kosong, hitung semua.
+ */
+function getProductionExpenseTotal(monthPrefix) {
+  const list = monthPrefix
+    ? state.productionPurchases.filter(p => (p.date || '').substring(0, 7) === monthPrefix)
+    : state.productionPurchases;
+  return list.reduce((s, p) => s + (Number(p.totalCost) || 0), 0);
+}
+
+/**
+ * getPayrollExpenseTotal(monthPrefix) — total gaji bulan tertentu.
+ * monthPrefix: "YYYY-MM". Jika kosong, hitung semua.
+ */
+function getPayrollExpenseTotal(monthPrefix) {
+  const list = monthPrefix
+    ? state.payrolls.filter(p => (p.period || '') === monthPrefix)
+    : state.payrolls;
+  return list.reduce((s, p) => s + (Number(p.totalPaid) || 0), 0);
+}
+
+/**
+ * getNetProfit(salesProfit, monthPrefix) — laba bersih setelah expense.
+ * Net = sales profit - belanja produksi - gaji karyawan
+ */
+function getNetProfit(salesProfit, monthPrefix) {
+  const prodExpense    = getProductionExpenseTotal(monthPrefix);
+  const payrollExpense = getPayrollExpenseTotal(monthPrefix);
+  return (salesProfit || 0) - prodExpense - payrollExpense;
+}
+
+/* =========================================================
    DASHBOARD
    ========================================================= */
 function renderDashboard() {
@@ -635,29 +695,39 @@ function renderDashboard() {
   const tsMonth = state.sales.filter(s => (s.date || '').substring(0, 7) === currentMonth);
   const prodMonth = state.production.filter(p => (p.date || '').substring(0, 7) === currentMonth);
   
-  const totalTarget = prodMonth.reduce((s, p) => s + (p.targetQty || 0), 0);
+  const totalTarget    = prodMonth.reduce((s, p) => s + (p.targetQty    || 0), 0);
   const totalCompleted = prodMonth.reduce((s, p) => s + (p.completedQty || 0), 0);
-  const revenueMonth = tsMonth.reduce((s, x) => s + (x.revenue || 0), 0);
-  const costMonth = tsMonth.reduce((s, x) => s + (x.costPrice || 0) * (x.quantity || 0), 0);
-  const profitMonth = revenueMonth - costMonth;
-  const marginMonth = revenueMonth > 0 ? Math.round(profitMonth / revenueMonth * 100) : 0;
+
+  // Revenue & profit pakai helpers — full backward compat
+  const revenueMonth = tsMonth.reduce((s, x) => s + getSaleRevenue(x), 0);
+  const costMonth    = tsMonth.reduce((s, x) => s + ((x.costPrice || 0) * (x.quantity || 0)), 0);
+  const profitMonth  = tsMonth.reduce((s, x) => s + getSaleProfit(x), 0);
+  const marginMonth  = revenueMonth > 0 ? Math.round(profitMonth / revenueMonth * 100) : 0;
+
+  // Expense: belanja produksi + gaji bulan ini
+  const prodExpense    = getProductionExpenseTotal(currentMonth);
+  const payrollExpense = getPayrollExpenseTotal(currentMonth);
+  const netProfit      = getNetProfit(profitMonth, currentMonth);
   
   const activeStock = state.products.filter(p => p.status === 'active' || p.status === 'in_production').reduce((s, p) => s + (p.stock || 0), 0);
-  const lowStock = state.products.filter(p => p.status === 'low_stock').length;
-  const outStock = state.products.filter(p => p.status === 'out_of_stock').length;
-  const best = tsMonth.length > 0 ? tsMonth.reduce((a, b) => (a.revenue || 0) > (b.revenue || 0) ? a : b) : null;
+  const lowStock    = state.products.filter(p => p.status === 'low_stock').length;
+  const outStock    = state.products.filter(p => p.status === 'out_of_stock').length;
+  const best = tsMonth.length > 0 ? tsMonth.reduce((a, b) => getSaleRevenue(a) > getSaleRevenue(b) ? a : b) : null;
 
   const cards = [
-    { label: 'Produksi Bulan Ini', value: totalCompleted, sub: 'Target: ' + totalTarget + ' unit', icon: 'fa-industry', cls: 'gold' },
-    { label: 'Penjualan Bulan Ini', value: tsMonth.length, sub: 'Transaksi', icon: 'fa-receipt', cls: 'green' },
-    { label: 'Pendapatan Bulan Ini', value: revenueMonth, sub: fmtRp(revenueMonth), icon: 'fa-money-bill-wave', cls: 'gold', isRp: true },
-    { label: 'Cost Hpp Bulan Ini', value: costMonth, sub: fmtRp(costMonth), icon: 'fa-coins', cls: 'maroon', isRp: true },
-    { label: 'Keuntungan Bulan Ini', value: profitMonth, sub: fmtRp(profitMonth), icon: 'fa-chart-pie', cls: 'green', isRp: true },
-    { label: 'Margin Keuntungan', value: marginMonth, sub: marginMonth + '%', icon: 'fa-percent', cls: 'gold', isPct: true },
-    { label: 'Total Stok Aktif', value: activeStock, sub: 'Unit tersedia', icon: 'fa-boxes-stacked', cls: 'green' },
-    { label: 'Stok Rendah', value: lowStock, sub: lowStock + ' produk', icon: 'fa-triangle-exclamation', cls: 'maroon' },
-    { label: 'Stok Habis', value: outStock, sub: outStock + ' produk', icon: 'fa-circle-xmark', cls: 'red' },
-    { label: 'Produk Terlaris', value: best ? best.productName : '-', sub: best ? fmtRp(best.revenue) : 'Belum ada', icon: 'fa-trophy', cls: 'gold', isText: true }
+    { label: 'Produksi Bulan Ini',   value: totalCompleted, sub: 'Target: ' + totalTarget + ' unit', icon: 'fa-industry',          cls: 'gold'   },
+    { label: 'Penjualan Bulan Ini',  value: tsMonth.length, sub: 'Transaksi',                        icon: 'fa-receipt',            cls: 'green'  },
+    { label: 'Pendapatan Real',      value: revenueMonth,   sub: fmtRp(revenueMonth),                icon: 'fa-money-bill-wave',    cls: 'gold',  isRp: true },
+    { label: 'Cost HPP Bulan Ini',   value: costMonth,      sub: fmtRp(costMonth),                   icon: 'fa-coins',              cls: 'maroon',isRp: true },
+    { label: 'Laba Penjualan',       value: profitMonth,    sub: fmtRp(profitMonth),                 icon: 'fa-chart-pie',          cls: 'green', isRp: true },
+    { label: 'Margin Penjualan',     value: marginMonth,    sub: marginMonth + '%',                  icon: 'fa-percent',            cls: 'gold',  isPct: true },
+    { label: 'Belanja Produksi',     value: prodExpense,    sub: fmtRp(prodExpense),                 icon: 'fa-shopping-basket',    cls: 'maroon',isRp: true },
+    { label: 'Gaji Karyawan',        value: payrollExpense, sub: fmtRp(payrollExpense),              icon: 'fa-money-bill-wave',    cls: 'maroon',isRp: true },
+    { label: 'Laba Bersih',          value: netProfit,      sub: fmtRp(netProfit),                   icon: 'fa-sack-dollar',        cls: netProfit >= 0 ? 'green' : 'red', isRp: true },
+    { label: 'Total Stok Aktif',     value: activeStock,    sub: 'Unit tersedia',                    icon: 'fa-boxes-stacked',      cls: 'green'  },
+    { label: 'Stok Rendah',          value: lowStock,       sub: lowStock + ' produk',               icon: 'fa-triangle-exclamation',cls: 'maroon' },
+    { label: 'Stok Habis',           value: outStock,       sub: outStock + ' produk',               icon: 'fa-circle-xmark',       cls: 'red'    },
+    { label: 'Produk Terlaris',      value: best ? best.productName : '-', sub: best ? fmtRp(getSaleRevenue(best)) : 'Belum ada', icon: 'fa-trophy', cls: 'gold', isText: true }
   ];
 
   $('#dashStats').innerHTML = cards.map(c => {
@@ -2475,9 +2545,13 @@ window.doDeletePayroll = async function(id) {
    ========================================================= */
 function renderReports() {
   const type = $('#reportType').value;
-  const totalRev = state.sales.reduce((s, x) => s + (x.revenue || 0), 0);
-  const totalCost = state.sales.reduce((s, x) => s + (x.costPrice || 0) * (x.quantity || 0), 0);
-  const totalProfit = totalRev - totalCost;
+  // Gunakan helpers agar konsisten dengan Dashboard
+  const totalRev    = state.sales.reduce((s, x) => s + getSaleRevenue(x), 0);
+  const totalCost   = state.sales.reduce((s, x) => s + ((x.costPrice || 0) * (x.quantity || 0)), 0);
+  const totalProfit = state.sales.reduce((s, x) => s + getSaleProfit(x), 0);
+  const totalProdExp    = getProductionExpenseTotal('');
+  const totalPayrollExp = getPayrollExpenseTotal('');
+  const totalNetProfit  = totalProfit - totalProdExp - totalPayrollExp;
   const marginPct = totalRev > 0 ? Math.round(totalProfit / totalRev * 100) : 0;
 
   const getTopChannel = () => { const ch = {}; state.sales.forEach(s => { ch[s.channel] = (ch[s.channel] || 0) + 1 }); const e = Object.entries(ch).sort((a, b) => b[1] - a[1]); return e.length ? e[0][0] : '-' };
@@ -2493,8 +2567,11 @@ function renderReports() {
     ],
     profit: [
       { label: 'Total Pendapatan', value: fmtRp(totalRev), cls: 'gold' },
-      { label: 'Total Biaya', value: fmtRp(totalCost), cls: 'maroon' },
-      { label: 'Laba Kotor', value: fmtRp(totalProfit), cls: 'green' },
+      { label: 'Total Biaya HPP', value: fmtRp(totalCost), cls: 'maroon' },
+      { label: 'Laba Penjualan', value: fmtRp(totalProfit), cls: 'green' },
+      { label: 'Belanja Produksi', value: fmtRp(totalProdExp), cls: 'maroon' },
+      { label: 'Gaji Karyawan', value: fmtRp(totalPayrollExp), cls: 'maroon' },
+      { label: 'Laba Bersih', value: fmtRp(totalNetProfit), cls: totalNetProfit >= 0 ? 'green' : 'red' },
       { label: 'Margin Laba', value: marginPct + '%', cls: marginPct >= 30 ? 'green' : marginPct >= 15 ? 'gold' : 'red' }
     ],
     production: [
