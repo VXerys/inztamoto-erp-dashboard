@@ -36,7 +36,7 @@ export default function InztamotoApp() {
             </div>
             <div className="form-group">
               <label>Kata Sandi</label>
-              <input type="password" className="form-input" id="loginPassword" placeholder="Masukkan kata sandi" required />
+              <input type="text" className="form-input" id="loginPassword" placeholder="Masukkan kata sandi" autoComplete="off" required />
             </div>
             <button type="submit" className="btn btn-primary btn-full" id="loginBtn">
               <span>Masuk ke Sistem</span> <i className="fas fa-arrow-right"></i>

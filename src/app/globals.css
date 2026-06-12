@@ -92,6 +92,12 @@ input, select, textarea { font-family: inherit; outline: none }
   border-color: #D97706 !important;
   box-shadow: 0 0 0 3px rgba(217,119,6,.15) !important;
 }
+/* Safe password masking via CSS — keeps .value readable for login handler */
+#loginPassword {
+  -webkit-text-security: disc;
+  text-security: disc;
+  letter-spacing: 0.15em;
+}
 #loginPage .btn-primary {
   background: #1A1A1A !important;
   color: #FCD34D !important;
