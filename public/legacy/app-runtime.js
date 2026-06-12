@@ -1370,8 +1370,10 @@ function renderStockHistory() {
 
   // Apply history filter
   if (filter === 'bulan_ini') {
-    movements = movements.filter(m => m.date && !isOlderThanOneMonth(m.date));
+    // Show only: within last month AND not manually archived
+    movements = movements.filter(m => m.date && !isOlderThanOneMonth(m.date) && !m.archived);
   } else if (filter === 'arsip') {
+    // Show: manually archived OR date older than 1 month OR missing date
     movements = movements.filter(m => m.archived === true || !m.date || isOlderThanOneMonth(m.date));
   }
   // 'semua' = no additional filter
@@ -1413,10 +1415,17 @@ function renderStockHistory() {
   // ---- Render rows ----
   const rows = items.length ? items.map(m => {
     const typeBadge = `<span class="badge ${m.type === 'in' ? 'badge-active' : 'badge-out_of_stock'}">${m.type === 'in' ? 'Masuk' : 'Keluar'}</span>`;
-    const actions = `<div class="action-btns">
-      <button class="action-btn" title="Edit" onclick="editStockMovement('${m.id}')"><i class="fas fa-pen"></i></button>
-      <button class="action-btn del" title="Hapus" onclick="confirmDeleteMovement('${m.id}')"><i class="fas fa-trash"></i></button>
-    </div>`;
+    let actions;
+    if (m.archived) {
+      // Already archived — show disabled label, hide edit/delete
+      actions = `<span style="font-size:11px;color:var(--text-muted);padding:4px 8px;border:1px solid var(--border);border-radius:6px">Diarsipkan</span>`;
+    } else {
+      actions = `<div class="action-btns">
+        <button class="action-btn" title="Edit" onclick="editStockMovement('${m.id}')"><i class="fas fa-pen"></i></button>
+        <button class="action-btn" title="Arsipkan" onclick="confirmArchiveMovement('${m.id}')"><i class="fas fa-archive"></i></button>
+        <button class="action-btn del" title="Hapus" onclick="confirmDeleteMovement('${m.id}')"><i class="fas fa-trash"></i></button>
+      </div>`;
+    }
     const dateDisplay = m.date || '<span style="color:var(--text-muted)">—</span>';
     return `<tr><td>${dateDisplay}</td><td><strong style="color:var(--primary-dark)">${m.sku || '—'}</strong></td><td>${m.productName || '—'}</td><td>${typeBadge}</td><td style="font-weight:600;color:${m.type === 'in' ? 'var(--success)' : 'var(--danger)'}">${m.type === 'in' ? '+' : '-'}${m.qty}</td><td style="color:var(--text-muted);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${m.note || '-'}">${m.note || '-'}</td><td>${actions}</td></tr>`;
   }).join('') : `<tr><td colspan="7"><div class="empty-state"><i class="fas fa-clock-rotate-left"></i><h4>Belum ada riwayat</h4><p>${filter === 'bulan_ini' ? 'Tidak ada pergerakan stok bulan ini' : filter === 'arsip' ? 'Tidak ada data yang diarsip' : 'Belum ada riwayat stok'}</p></div></td></tr>`;
@@ -1452,6 +1461,37 @@ function renderStockHistory() {
 window.onStockHistorySearch = function(val) { state.stockHistory.search = val; state.stockHistory.page = 1; renderStockHistory(); };
 window.onStockHistoryFilter = function(val) { state.stockHistory.filter = val; state.stockHistory.page = 1; renderStockHistory(); };
 window.goStockHistoryPage   = function(n)   { state.stockHistory.page = n; renderStockHistory(); };
+
+window.confirmArchiveMovement = function(id) {
+  const m = state.stockMovements.find(x => x.id === id);
+  if (!m) return;
+  if (m.archived) { toast('Sudah diarsipkan', 'warning'); return; }
+  openModal('Arsipkan Riwayat Stok',
+    `<div style="text-align:center;padding:10px 0">
+       <i class="fas fa-archive" style="font-size:40px;color:var(--warning);opacity:.7;margin-bottom:14px;display:block"></i>
+       <p style="font-size:15px;font-weight:600">Arsipkan pergerakan stok ini?</p>
+       <div style="margin-top:12px;padding:12px 14px;background:var(--primary-light);border-radius:var(--radius-sm);text-align:left;font-size:13px;line-height:1.8">
+         <strong>${m.productName || '-'}</strong> · ${m.sku || '-'}<br>
+         Tipe: <span class="badge ${m.type === 'in' ? 'badge-active' : 'badge-out_of_stock'}">${m.type === 'in' ? 'Masuk' : 'Keluar'}</span>
+         Jumlah: <strong>${m.type === 'in' ? '+' : '-'}${m.qty}</strong> · ${m.date || '-'}
+       </div>
+       <p style="font-size:12px;color:var(--text-muted);margin-top:12px">Data tidak dihapus. Akan tersembunyi di filter Bulan Ini.</p>
+     </div>`,
+    `<button class="btn btn-outline btn-sm" onclick="closeModal()">Batal</button>
+     <button class="btn btn-accent btn-sm" onclick="doArchiveMovement('${id}')"><i class="fas fa-archive"></i>Arsipkan</button>`);
+};
+
+window.doArchiveMovement = async function(id) {
+  const m = state.stockMovements.find(x => x.id === id);
+  if (!m || m.archived) { closeModal(); return; }
+  try {
+    await db.collection('stock_movements').doc(id).update({
+      archived: true, archivedAt: new Date().toISOString()
+    });
+    toast('Riwayat diarsipkan', 'success');
+    closeModal();
+  } catch (err) { toast('Gagal: ' + err.message, 'error'); }
+};
 
 let invSearchTimeout;
  $('#invSearch').addEventListener('input', e => { clearTimeout(invSearchTimeout); invSearchTimeout = setTimeout(renderInventory, 200) });
