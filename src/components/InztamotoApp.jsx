@@ -373,18 +373,8 @@ export default function InztamotoApp() {
               </div>
               <div className="card" style={{ marginTop: '18px' }}>
                 <div className="card-header"><h3>Riwayat Pergerakan Stok</h3></div>
-                <div className="card-body no-pad">
-                  <div className="table-scroll">
-                    <table className="data-table">
-                      <thead>
-                        <tr>
-                          <th>Tanggal</th><th>SKU</th><th>Produk</th><th>Tipe</th>
-                          <th>Jumlah</th><th>Catatan</th><th>Aksi</th>
-                        </tr>
-                      </thead>
-                      <tbody id="invHistoryBody"></tbody>
-                    </table>
-                  </div>
+                <div id="invHistoryCard">
+                  {/* Rendered dynamically by renderStockHistory() — includes toolbar, table, and pagination */}
                 </div>
               </div>
             </div>

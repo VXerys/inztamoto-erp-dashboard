@@ -83,6 +83,7 @@ const state = {
   sale: { search: '', channel: 'all', page: 1, perPage: 8 },
   pp: { search: '', week: '', status: 'all', page: 1, perPage: 10 },
   payroll: { search: '', period: '', status: 'all', page: 1, perPage: 10 },
+  stockHistory: { search: '', filter: 'bulan_ini', page: 1, perPage: 15 },
   charts: {},
   tempImageData: null,
   listeners: []
@@ -1323,6 +1324,17 @@ window.doUpdateProdStatus = async function (id) {
 /* =========================================================
    INVENTARIS / STOCK CONTROL
    ========================================================= */
+
+// Helper: apakah suatu date lebih dari 1 bulan lalu?
+function isOlderThanOneMonth(dateStr) {
+  if (!dateStr) return false;
+  const d = new Date(dateStr);
+  if (isNaN(d)) return false;
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - 1);
+  return d < cutoff;
+}
+
 function renderInventory() {
   const q = ($('#invSearch') ? $('#invSearch').value : '').toLowerCase();
   const filterVal = $('#invFilter') ? $('#invFilter').value : 'all';
@@ -1347,17 +1359,99 @@ function renderInventory() {
   }).join('') : `<tr><td colspan="8"><div class="empty-state"><i class="fas fa-boxes-stacked"></i><h4>Tidak ada data</h4></div></td></tr>`;
   $('#invInfo').textContent = `Menampilkan ${list.length} produk`;
 
-  // Riwayat — tombol edit & hapus
-  const sorted = [...state.stockMovements].filter(m => !m.deleted).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  $('#invHistoryBody').innerHTML = sorted.length ? sorted.map(m => {
+  renderStockHistory();
+}
+
+function renderStockHistory() {
+  const { search, filter, page, perPage } = state.stockHistory;
+
+  // Base: exclude soft-deleted
+  let movements = state.stockMovements.filter(m => !m.deleted);
+
+  // Apply history filter
+  if (filter === 'bulan_ini') {
+    movements = movements.filter(m => m.date && !isOlderThanOneMonth(m.date));
+  } else if (filter === 'arsip') {
+    movements = movements.filter(m => m.archived === true || !m.date || isOlderThanOneMonth(m.date));
+  }
+  // 'semua' = no additional filter
+
+  // Search within SKU, productName, note
+  if (search) {
+    const q = search.toLowerCase();
+    movements = movements.filter(m =>
+      (m.sku         || '').toLowerCase().includes(q) ||
+      (m.productName || '').toLowerCase().includes(q) ||
+      (m.note        || '').toLowerCase().includes(q)
+    );
+  }
+
+  // Sort newest first
+  movements = [...movements].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+  const total = Math.max(1, Math.ceil(movements.length / perPage));
+  if (page > total) state.stockHistory.page = 1;
+  const start = (state.stockHistory.page - 1) * perPage;
+  const items = movements.slice(start, start + perPage);
+
+  // ---- Render filter toolbar ----
+  const filterLabel = { bulan_ini: 'Bulan Ini', arsip: 'Arsip', semua: 'Semua' };
+  const filterBtns = Object.entries(filterLabel).map(([val, lbl]) =>
+    `<button class="btn btn-sm ${filter === val ? 'btn-primary' : 'btn-outline'}" onclick="onStockHistoryFilter('${val}')">${lbl}</button>`
+  ).join('');
+
+  const historyToolbar = `
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 20px;border-bottom:1px solid var(--border-light)">
+      <div class="table-search" style="flex:1;min-width:180px;max-width:260px">
+        <i class="fas fa-search"></i>
+        <input type="text" placeholder="Cari SKU, produk, catatan..." value="${search}" oninput="onStockHistorySearch(this.value)" style="width:100%;padding:8px 14px 8px 36px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:13px">
+      </div>
+      <div style="display:flex;gap:6px">${filterBtns}</div>
+      <span style="margin-left:auto;font-size:12px;color:var(--text-muted)">${movements.length} pergerakan</span>
+    </div>`;
+
+  // ---- Render rows ----
+  const rows = items.length ? items.map(m => {
     const typeBadge = `<span class="badge ${m.type === 'in' ? 'badge-active' : 'badge-out_of_stock'}">${m.type === 'in' ? 'Masuk' : 'Keluar'}</span>`;
-    let actions = `<div class="action-btns">
+    const actions = `<div class="action-btns">
       <button class="action-btn" title="Edit" onclick="editStockMovement('${m.id}')"><i class="fas fa-pen"></i></button>
       <button class="action-btn del" title="Hapus" onclick="confirmDeleteMovement('${m.id}')"><i class="fas fa-trash"></i></button>
     </div>`;
-    return `<tr><td>${m.date}</td><td><strong style="color:var(--primary-dark)">${m.sku}</strong></td><td>${m.productName}</td><td>${typeBadge}</td><td style="font-weight:600;color:${m.type === 'in' ? 'var(--success)' : 'var(--danger)'}">${m.type === 'in' ? '+' : '-'}${m.qty}</td><td style="color:var(--text-muted);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${m.note || '-'}">${m.note || '-'}</td><td>${actions}</td></tr>`;
-  }).join('') : `<tr><td colspan="7"><div class="empty-state"><i class="fas fa-clock-rotate-left"></i><h4>Belum ada riwayat</h4></div></td></tr>`;
+    const dateDisplay = m.date || '<span style="color:var(--text-muted)">—</span>';
+    return `<tr><td>${dateDisplay}</td><td><strong style="color:var(--primary-dark)">${m.sku || '—'}</strong></td><td>${m.productName || '—'}</td><td>${typeBadge}</td><td style="font-weight:600;color:${m.type === 'in' ? 'var(--success)' : 'var(--danger)'}">${m.type === 'in' ? '+' : '-'}${m.qty}</td><td style="color:var(--text-muted);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${m.note || '-'}">${m.note || '-'}</td><td>${actions}</td></tr>`;
+  }).join('') : `<tr><td colspan="7"><div class="empty-state"><i class="fas fa-clock-rotate-left"></i><h4>Belum ada riwayat</h4><p>${filter === 'bulan_ini' ? 'Tidak ada pergerakan stok bulan ini' : filter === 'arsip' ? 'Tidak ada data yang diarsip' : 'Belum ada riwayat stok'}</p></div></td></tr>`;
+
+  // ---- Render pagination ----
+  let pag = `<button ${state.stockHistory.page <= 1 ? 'disabled' : ''} onclick="goStockHistoryPage(${state.stockHistory.page - 1})"><i class="fas fa-chevron-left"></i></button>`;
+  for (let i = 1; i <= Math.min(total, 10); i++) {
+    pag += `<button class="${i === state.stockHistory.page ? 'active' : ''}" onclick="goStockHistoryPage(${i})">${i}</button>`;
+  }
+  pag += `<button ${state.stockHistory.page >= total ? 'disabled' : ''} onclick="goStockHistoryPage(${state.stockHistory.page + 1})"><i class="fas fa-chevron-right"></i></button>`;
+
+  // ---- Inject into history card ----
+  const histCard = $('#invHistoryCard');
+  if (histCard) {
+    histCard.innerHTML = `
+      ${historyToolbar}
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead><tr><th>Tanggal</th><th>SKU</th><th>Produk</th><th>Tipe</th><th>Jumlah</th><th>Catatan</th><th>Aksi</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <div class="table-footer">
+        <span>${movements.length > 0 ? `Menampilkan ${start + 1}–${Math.min(start + perPage, movements.length)} dari ${movements.length}` : ''}</span>
+        <div class="pagination">${pag}</div>
+      </div>`;
+  } else {
+    // fallback: inject directly to tbody + pagination containers
+    $('#invHistoryBody').innerHTML = rows;
+  }
 }
+
+window.onStockHistorySearch = function(val) { state.stockHistory.search = val; state.stockHistory.page = 1; renderStockHistory(); };
+window.onStockHistoryFilter = function(val) { state.stockHistory.filter = val; state.stockHistory.page = 1; renderStockHistory(); };
+window.goStockHistoryPage   = function(n)   { state.stockHistory.page = n; renderStockHistory(); };
 
 let invSearchTimeout;
  $('#invSearch').addEventListener('input', e => { clearTimeout(invSearchTimeout); invSearchTimeout = setTimeout(renderInventory, 200) });
