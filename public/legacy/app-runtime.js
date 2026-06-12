@@ -320,6 +320,7 @@ function prodStatusBadge(s) {
 }
 
 function channelBadge(ch) {
+  if (!ch) return '<span class="badge badge-offline_store">-</span>';
   const key = ch.toLowerCase().replace(/ /g, '_');
   const m = { website: 'badge-website', shopee: 'badge-shopee', tokopedia: 'badge-tokopedia', whatsapp: 'badge-whatsapp', offline_store: 'badge-offline_store' };
   return `<span class="badge ${m[key] || 'badge-offline_store'}">${ch}</span>`;
@@ -392,16 +393,23 @@ function enterApp() {
   if (appInitialized) return;
   appInitialized = true;
 
+  // Defensive: pastikan state.user dan field-fieldnya aman
+  const u = state.user || {};
+  const safeName  = u.name  || (u.email ? u.email.split('@')[0] : 'User');
+  const safeEmail = u.email || '-';
+  const safeRole  = u.role  || 'User';
+  const initial   = safeName.charAt(0).toUpperCase() || 'U';
+
   $('#loginPage').style.display = 'none';
   $('#appShell').style.display = 'block';
-  $('#userName').textContent = state.user.name;
-  $('#userRole').textContent = state.user.role;
-  $('#settingsName').textContent = state.user.name;
-  $('#settingsEmail').textContent = state.user.email;
-  $('#settingNameInput').value = state.user.name;
-  $('#settingEmailInput').value = state.user.email;
-  $('#userAvatar').textContent = state.user.name.charAt(0).toUpperCase();
-  $('#settingsAvatar').textContent = state.user.name.charAt(0).toUpperCase();
+  $('#userName').textContent = safeName;
+  $('#userRole').textContent = safeRole;
+  $('#settingsName').textContent = safeName;
+  $('#settingsEmail').textContent = safeEmail;
+  $('#settingNameInput').value = safeName;
+  $('#settingEmailInput').value = safeEmail;
+  $('#userAvatar').textContent = initial;
+  $('#settingsAvatar').textContent = initial;
   initFirebaseListeners();
   navigateTo('dashboard');
 }
