@@ -2838,8 +2838,7 @@ auth.onAuthStateChanged(user => {
     return;
   }
 
-  if (appInitialized) return;
-
+  // enterApp() sudah punya guard if (appInitialized) return — aman dipanggil ulang
   loadUserProfile(user).then(profile => {
     state.user = profile;
     enterApp();
