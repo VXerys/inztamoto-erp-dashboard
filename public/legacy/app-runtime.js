@@ -76,7 +76,7 @@ const state = {
   stockMovements: [],
   productionPurchases: [],
   payrolls: [],
-  users: [...DEMO_USERS],
+  users: [],
   currentPage: 'dashboard',
   prod: { search: '', filter: 'all', catFilter: 'all', sort: { field: 'sku', dir: 'asc' }, page: 1, perPage: 8 },
   prodOrder: { search: '', filter: 'all', page: 1, perPage: 8, dateFilter: '' },
@@ -466,6 +466,22 @@ function initFirebaseListeners() {
     if (state.currentPage === 'gajiKaryawan') renderPayrolls();
   }, err => console.error('Payrolls listener error:', err));
   state.listeners.push(unsubPayroll);
+
+  const unsubUsers = db.collection('users').onSnapshot(snap => {
+    state.users = snap.docs.map(d => {
+      const data = d.data();
+      // doc ID bisa berupa UID atau email — pastikan email tersedia
+      return {
+        id: d.id,
+        name: data.name || (data.email ? data.email.split('@')[0] : d.id),
+        email: data.email || d.id,
+        role: data.role || 'User',
+        status: data.status || 'Aktif'
+      };
+    });
+    if (state.currentPage === 'pengguna') renderUsers();
+  }, err => console.error('Users listener error:', err));
+  state.listeners.push(unsubUsers);
 
   seedIfEmpty();
 }
@@ -2715,10 +2731,32 @@ function renderReportDetail(type) {
    ========================================================= */
 function renderUsers() {
   const roleBadge = r => {
-    const m = { Owner: 'badge-website', Admin: 'badge-in_production', Warehouse: 'badge-in_progress', 'Production Team': 'badge-qc' };
-    return `<span class="badge ${m[r] || 'badge-offline_store'}">${r}</span>`;
+    const role = r || 'User';
+    const m = { Owner: 'badge-website', Admin: 'badge-in_production', Warehouse: 'badge-in_progress', 'Production Team': 'badge-qc', User: 'badge-offline_store' };
+    return `<span class="badge ${m[role] || 'badge-offline_store'}">${role}</span>`;
   };
-  $('#userBody').innerHTML = state.users.map(u => `<tr><td><div style="display:flex;align-items:center;gap:10px"><div class="avatar" style="width:32px;height:32px;border-radius:8px;font-size:13px">${u.name.charAt(0)}</div><strong>${u.name}</strong></div></td><td style="color:var(--text-muted)">${u.email}</td><td>${roleBadge(u.role)}</td><td><span class="badge ${u.status === 'Aktif' ? 'badge-active' : 'badge-inactive'}">${u.status}</span></td></tr>`).join('');
+
+  if (!state.users.length) {
+    $('#userBody').innerHTML = `<tr><td colspan="4"><div class="empty-state"><i class="fas fa-users"></i><h4>Belum ada data pengguna</h4><p>Tambahkan user di Firestore collection "users"</p></div></td></tr>`;
+    return;
+  }
+
+  $('#userBody').innerHTML = state.users.map(u => {
+    const name   = u.name   || (u.email ? u.email.split('@')[0] : '-');
+    const email  = u.email  || '-';
+    const role   = u.role   || 'User';
+    const status = u.status || 'Aktif';
+    const initial = name.charAt(0).toUpperCase() || '?';
+    return `<tr>
+      <td><div style="display:flex;align-items:center;gap:10px">
+        <div class="avatar" style="width:32px;height:32px;border-radius:8px;font-size:13px">${initial}</div>
+        <strong>${name}</strong>
+      </div></td>
+      <td style="color:var(--text-muted)">${email}</td>
+      <td>${roleBadge(role)}</td>
+      <td><span class="badge ${status === 'Aktif' ? 'badge-active' : 'badge-inactive'}">${status}</span></td>
+    </tr>`;
+  }).join('');
 }
 
 /* =========================================================
