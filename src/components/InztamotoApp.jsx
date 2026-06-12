@@ -290,7 +290,13 @@ export default function InztamotoApp() {
                       <option value="completed">Selesai</option>
                     </select>
                   </div>
-                  <div style={{ marginLeft: 'auto' }}>
+                  <div className="table-filter">
+                    <input type="date" className="form-input" id="prodDateFilter" style={{fontSize:'13px',padding:'8px 12px'}} title="Filter tanggal produksi" />
+                  </div>
+                  <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+                    <button className="btn btn-outline btn-sm" id="clearProdDateBtn" title="Tampilkan semua tanggal">
+                      <i className="fas fa-calendar-xmark"></i>Semua Tanggal
+                    </button>
                     <button className="btn btn-primary btn-sm" id="addProdOrderBtn">
                       <i className="fas fa-plus"></i>Tambah Produksi
                     </button>

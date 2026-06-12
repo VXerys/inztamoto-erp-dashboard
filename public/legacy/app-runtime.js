@@ -79,7 +79,7 @@ const state = {
   users: [...DEMO_USERS],
   currentPage: 'dashboard',
   prod: { search: '', filter: 'all', catFilter: 'all', sort: { field: 'sku', dir: 'asc' }, page: 1, perPage: 8 },
-  prodOrder: { search: '', filter: 'all', page: 1, perPage: 8 },
+  prodOrder: { search: '', filter: 'all', page: 1, perPage: 8, dateFilter: '' },
   sale: { search: '', channel: 'all', page: 1, perPage: 8 },
   pp: { search: '', week: '', status: 'all', page: 1, perPage: 10 },
   payroll: { search: '', period: '', status: 'all', page: 1, perPage: 10 },
@@ -1182,22 +1182,41 @@ window.doDeleteCategory = async function (id) { try { await db.collection('categ
    PRODUKSI
    ========================================================= */
 function renderProduction() {
-  const tp = state.production.filter(p => p.date === today);
-  const totalTarget = tp.reduce((s, p) => s + (p.targetQty || 0), 0);
+  // Summary uses selected date filter, default to today
+  const summaryDate = state.prodOrder.dateFilter || today;
+  const tp = state.production.filter(p => (p.date || '') === summaryDate);
+  const totalTarget    = tp.reduce((s, p) => s + (p.targetQty    || 0), 0);
   const totalCompleted = tp.reduce((s, p) => s + (p.completedQty || 0), 0);
   const pctDone = totalTarget > 0 ? Math.round(totalCompleted / totalTarget * 100) : 0;
+  const summaryLabel = summaryDate === today ? 'Hari Ini' : summaryDate;
   $('#prodStats').innerHTML = [
-    { label: 'Target Produksi', value: totalTarget, sub: 'Produksi Hari Ini', icon: 'fa-bullseye', cls: 'gold' },
-    { label: 'Selesai', value: totalCompleted, sub: 'Produksi Selesai', icon: 'fa-check-circle', cls: 'green' },
-    { label: 'Persentase', value: pctDone + '%', sub: 'penyelesaian', icon: 'fa-percent', cls: pctDone >= 80 ? 'green' : 'gold' }
+    { label: 'Target Produksi', value: totalTarget,    sub: summaryLabel,          icon: 'fa-bullseye',    cls: 'gold'  },
+    { label: 'Selesai',          value: totalCompleted, sub: 'Unit selesai',         icon: 'fa-check-circle',cls: 'green' },
+    { label: 'Persentase',       value: pctDone + '%',  sub: 'penyelesaian',         icon: 'fa-percent',     cls: pctDone >= 80 ? 'green' : 'gold' }
   ].map(c => `<div class="stat-card ${c.cls}"><div class="sc-top"><div class="sc-icon"><i class="fas ${c.icon}"></i></div><span class="sc-label">${c.label}</span></div><div class="sc-value">${c.value}</div><div class="sc-sub">${c.sub}</div></div>`).join('');
+
+  // Sync date filter input if rendered
+  const dateEl = $('#prodDateFilter');
+  if (dateEl && !dateEl.value) dateEl.value = today;
+
   renderProductionTable();
 }
 
 function renderProductionTable() {
   let list = [...state.production];
-  if (state.prodOrder.search) { const q = state.prodOrder.search.toLowerCase(); list = list.filter(p => (p.productName || '').toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q)) }
+
+  // Date filter
+  if (state.prodOrder.dateFilter) {
+    list = list.filter(p => (p.date || '') === state.prodOrder.dateFilter);
+  }
+  // Search
+  if (state.prodOrder.search) {
+    const q = state.prodOrder.search.toLowerCase();
+    list = list.filter(p => (p.productName || '').toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q));
+  }
+  // Status filter
   if (state.prodOrder.filter !== 'all') list = list.filter(p => p.status === state.prodOrder.filter);
+
   list.sort((a, b) => {
     const aPct = a.targetQty > 0 ? (a.completedQty || 0) / a.targetQty : 0;
     const bPct = b.targetQty > 0 ? (b.completedQty || 0) / b.targetQty : 0;
@@ -1206,19 +1225,31 @@ function renderProductionTable() {
     if (aDone !== bDone) return aDone - bDone;
     return (b.date || '').localeCompare(a.date || '');
   });
-  const { page, perPage } = state.prodOrder; const total = Math.max(1, Math.ceil(list.length / perPage));
+
+  const { page, perPage } = state.prodOrder;
+  const total = Math.max(1, Math.ceil(list.length / perPage));
   if (page > total) state.prodOrder.page = total;
-  const start = (state.prodOrder.page - 1) * perPage, items = list.slice(start, start + perPage);
+  const start = (state.prodOrder.page - 1) * perPage;
+  const items = list.slice(start, start + perPage);
 
   $('#prodOrderBody').innerHTML = items.length ? items.map(p => {
     const pctDone = p.targetQty > 0 ? Math.round((p.completedQty || 0) / p.targetQty * 100) : 0;
     const fillCls = pctDone >= 100 ? 'fill-green' : pctDone >= 50 ? 'fill-gold' : 'fill-red';
     const prod = findProduct(p.productId, p.productName);
-    return `<tr><td>${prodImg(prod, 32)}</td><td><strong>${p.productName}</strong></td><td>${p.sku}</td><td>${p.targetQty}</td><td>${p.completedQty || 0}</td>
-    <td style="min-width:100px"><div style="display:flex;align-items:center;gap:8px"><div class="progress-bar" style="flex:1"><div class="fill ${fillCls}" style="width:${pctDone}%"></div></div><span style="font-size:12px;font-weight:600">${pctDone}%</span></div></td>
-    <td>${p.date}</td><td>${prodStatusBadge(p.status)}</td>
-    <td><div class="action-btns"><button class="action-btn" title="Update" onclick="updateProdStatus('${p.id}')"><i class="fas fa-pen"></i></button></div></td></tr>`;
-  }).join('') : `<tr><td colspan="9"><div class="empty-state"><i class="fas fa-industry"></i><h4>Tidak ada data produksi</h4></div></td></tr>`;
+    const dateDisplay = p.date || '<span style="color:var(--text-muted)">—</span>';
+    const isToday = p.date === today;
+    return `<tr>
+      <td>${prodImg(prod, 32)}</td>
+      <td><strong>${p.productName}</strong></td>
+      <td>${p.sku || '—'}</td>
+      <td>${p.targetQty || 0}</td>
+      <td>${p.completedQty || 0}</td>
+      <td style="min-width:100px"><div style="display:flex;align-items:center;gap:8px"><div class="progress-bar" style="flex:1"><div class="fill ${fillCls}" style="width:${pctDone}%"></div></div><span style="font-size:12px;font-weight:600">${pctDone}%</span></div></td>
+      <td><strong style="color:${isToday ? 'var(--success)' : 'var(--text)'}">${dateDisplay}</strong>${isToday ? ' <small style="color:var(--success);font-size:10px">Hari ini</small>' : ''}</td>
+      <td>${prodStatusBadge(p.status)}</td>
+      <td><div class="action-btns"><button class="action-btn" title="Update" onclick="updateProdStatus('${p.id}')"><i class="fas fa-pen"></i></button></div></td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="9"><div class="empty-state"><i class="fas fa-industry"></i><h4>Tidak ada data produksi</h4>${state.prodOrder.dateFilter ? `<p>Tidak ada produksi pada ${state.prodOrder.dateFilter}</p>` : ''}</div></td></tr>`;
 
   const end = Math.min(start + perPage, list.length);
   $('#prodOrderInfo').textContent = list.length > 0 ? `Menampilkan ${start + 1}–${end} dari ${list.length}` : '';
@@ -1232,6 +1263,28 @@ window.goProdOrderPage = function (n) { state.prodOrder.page = n; renderProducti
 let poSearchTimeout;
  $('#prodProdSearch').addEventListener('input', e => { clearTimeout(poSearchTimeout); poSearchTimeout = setTimeout(() => { state.prodOrder.search = e.target.value; state.prodOrder.page = 1; renderProductionTable() }, 200) });
  $('#prodStatusFilter').addEventListener('change', e => { state.prodOrder.filter = e.target.value; state.prodOrder.page = 1; renderProductionTable() });
+
+// Date filter — rerender both summary + table
+const prodDateFilterEl = $('#prodDateFilter');
+if (prodDateFilterEl) {
+  prodDateFilterEl.value = today;
+  prodDateFilterEl.addEventListener('change', e => {
+    state.prodOrder.dateFilter = e.target.value;
+    state.prodOrder.page = 1;
+    renderProduction();
+  });
+}
+window.clearProdDateFilter = function() {
+  state.prodOrder.dateFilter = '';
+  state.prodOrder.page = 1;
+  const el = $('#prodDateFilter');
+  if (el) el.value = '';
+  renderProduction();
+};
+const clearProdDateBtn = $('#clearProdDateBtn');
+if (clearProdDateBtn) {
+  clearProdDateBtn.addEventListener('click', window.clearProdDateFilter);
+}
 
  $('#addProdOrderBtn').addEventListener('click', () => {
   const opts = state.products.map(p => `<option value="${p.id}">${p.name} (${p.sku})</option>`).join('');
