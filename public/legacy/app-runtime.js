@@ -80,12 +80,31 @@ const state = {
   currentPage: 'dashboard',
   prod: { search: '', filter: 'all', catFilter: 'all', sort: { field: 'sku', dir: 'asc' }, page: 1, perPage: 8 },
   prodOrder: { search: '', filter: 'all', page: 1, perPage: 8, dateFilter: '' },
-  sale: { search: '', channel: 'all', page: 1, perPage: 8 },
+  sale: { search: '', channel: 'all', month: 'all', year: 'all', page: 1, perPage: 8 },
   pp: { search: '', week: '', status: 'all', page: 1, perPage: 10 },
   payroll: { search: '', period: '', status: 'all', page: 1, perPage: 10 },
   stockHistory: { search: '', filter: 'bulan_ini', page: 1, perPage: 15 },
+  report: { month: 'all', year: String(new Date().getFullYear()) },
   charts: {},
   tempImageData: null,
+  salesTrend: {
+    range: 'daily',
+    date: new Date().toISOString().split('T')[0],
+    month: String(new Date().getMonth() + 1).padStart(2, '0'),
+    year: String(new Date().getFullYear())
+  },
+  revCostTrend: {
+    range: 'monthly',
+    date: new Date().toISOString().split('T')[0],
+    month: String(new Date().getMonth() + 1).padStart(2, '0'),
+    year: String(new Date().getFullYear())
+  },
+  productionTrend: {
+    range: 'monthly',
+    date: new Date().toISOString().split('T')[0],
+    month: String(new Date().getMonth() + 1).padStart(2, '0'),
+    year: String(new Date().getFullYear())
+  },
   listeners: []
 };
 
@@ -393,25 +412,33 @@ function enterApp() {
   if (appInitialized) return;
   appInitialized = true;
 
-  // Defensive: pastikan state.user dan field-fieldnya aman
-  const u = state.user || {};
-  const safeName  = u.name  || (u.email ? u.email.split('@')[0] : 'User');
-  const safeEmail = u.email || '-';
-  const safeRole  = u.role  || 'User';
-  const initial   = safeName.charAt(0).toUpperCase() || 'U';
-
   $('#loginPage').style.display = 'none';
   $('#appShell').style.display = 'block';
-  $('#userName').textContent = safeName;
-  $('#userRole').textContent = safeRole;
-  $('#settingsName').textContent = safeName;
-  $('#settingsEmail').textContent = safeEmail;
-  $('#settingNameInput').value = safeName;
-  $('#settingEmailInput').value = safeEmail;
-  $('#userAvatar').textContent = initial;
-  $('#settingsAvatar').textContent = initial;
+  updateUserDisplay(state.user);
   initFirebaseListeners();
   navigateTo('dashboard');
+}
+
+function getUserInitial(nameOrEmail) {
+  const value = String(nameOrEmail || 'User').trim();
+  return value.charAt(0).toUpperCase() || 'U';
+}
+
+function updateUserDisplay(user) {
+  const u = user || {};
+  const safeName = u.name || (u.email ? u.email.split('@')[0] : 'User');
+  const safeEmail = u.email || '-';
+  const safeRole = u.role || 'User';
+  const initial = getUserInitial(safeName);
+
+  if ($('#userName')) $('#userName').textContent = safeName;
+  if ($('#userRole')) $('#userRole').textContent = safeRole;
+  if ($('#settingsName')) $('#settingsName').textContent = safeName;
+  if ($('#settingsEmail')) $('#settingsEmail').textContent = safeEmail;
+  if ($('#settingNameInput')) $('#settingNameInput').value = safeName;
+  if ($('#settingEmailInput')) $('#settingEmailInput').value = safeEmail;
+  if ($('#userAvatar')) $('#userAvatar').textContent = initial;
+  if ($('#settingsAvatar')) $('#settingsAvatar').textContent = initial;
 }
 
 /* =========================================================
@@ -782,30 +809,189 @@ function renderDashboard() {
 const chartFont = { family: 'Plus Jakarta Sans', size: 11 };
 const chartGrid = { color: 'rgba(244,196,48,.06)' };
 
+/* =========================================================
+   TREN PENJUALAN — Phase 6.4 period-aware chart
+   ========================================================= */
+
+/** Revenue helper already defined above as getSaleRevenue(). */
+function getTrendValue(sale) {
+  if (sale.realRevenue !== undefined && !isNaN(sale.realRevenue)) return Number(sale.realRevenue);
+  if (sale.revenue     !== undefined && !isNaN(sale.revenue))     return Number(sale.revenue);
+  return (Number(sale.sellingPrice) || 0) * (Number(sale.quantity) || 0);
+}
+
+function getDailySalesTrendData() {
+  // 7 days ending on (and including) state.salesTrend.date
+  const anchor = new Date(state.salesTrend.date);
+  if (isNaN(anchor)) return { labels: [], values: [] };
+  const labels = [], values = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(anchor);
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().split('T')[0];
+    const label = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+    const total = state.sales
+      .filter(s => s.date === key)
+      .reduce((sum, s) => sum + getTrendValue(s), 0);
+    labels.push(label);
+    values.push(total);
+  }
+  return { labels, values };
+}
+
+function getWeeklyTrendData() {
+  const { month, year } = state.salesTrend;
+  const filtered = state.sales.filter(s => matchesMonthYear(s.date, month, year));
+  // Group into week-of-month buckets (1-5)
+  const buckets = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  filtered.forEach(s => {
+    const day = parseInt((s.date || '').substring(8, 10), 10);
+    if (!day) return;
+    const week = Math.min(Math.ceil(day / 7), 5);
+    buckets[week] += getTrendValue(s);
+  });
+  return {
+    labels: ['Minggu 1', 'Minggu 2', 'Minggu 3', 'Minggu 4', 'Minggu 5'],
+    values: [buckets[1], buckets[2], buckets[3], buckets[4], buckets[5]]
+  };
+}
+
+function getMonthlyTrendData() {
+  const { year } = state.salesTrend;
+  const filtered = state.sales.filter(s => matchesMonthYear(s.date, 'all', year));
+  const MONTH_LABELS_SHORT = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+  const buckets = Array(12).fill(0);
+  filtered.forEach(s => {
+    const m = parseInt((s.date || '').substring(5, 7), 10);
+    if (m >= 1 && m <= 12) buckets[m - 1] += getTrendValue(s);
+  });
+  return { labels: MONTH_LABELS_SHORT, values: buckets };
+}
+
+function renderSalesTrendFilters() {
+  const el = $('#salesTrendFilters');
+  if (!el) return;
+  const { range, date, month, year } = state.salesTrend;
+  const yearOpts = getYearOptionsFromSales().map(y =>
+    `<option value="${y}" ${state.salesTrend.year === y ? 'selected' : ''}>${y}</option>`
+  ).join('');
+  const monthOpts = MONTH_OPTIONS.map(m =>
+    `<option value="${m.value}" ${state.salesTrend.month === m.value ? 'selected' : ''}>${m.label}</option>`
+  ).join('');
+
+  if (range === 'daily') {
+    el.innerHTML = `<input type="date" class="form-input" id="salesTrendDate" value="${date}"
+      style="height:30px;font-size:12px;padding:4px 10px;" max="${today}">`;
+    $('#salesTrendDate').addEventListener('change', e => {
+      state.salesTrend.date = e.target.value || today;
+      renderSalesTrendChart(state.salesTrend.range);
+    });
+  } else if (range === 'weekly') {
+    el.innerHTML = `
+      <select class="form-input" id="salesTrendMonth" style="height:30px;font-size:12px;padding:4px 10px;">
+        ${monthOpts}
+      </select>
+      <select class="form-input" id="salesTrendYear" style="height:30px;font-size:12px;padding:4px 10px;">
+        ${yearOpts}
+      </select>`;
+    $('#salesTrendMonth').addEventListener('change', e => {
+      state.salesTrend.month = e.target.value;
+      renderSalesTrendChart(state.salesTrend.range);
+    });
+    $('#salesTrendYear').addEventListener('change', e => {
+      state.salesTrend.year = e.target.value;
+      renderSalesTrendChart(state.salesTrend.range);
+    });
+  } else if (range === 'monthly') {
+    el.innerHTML = `<select class="form-input" id="salesTrendYear" style="height:30px;font-size:12px;padding:4px 10px;">
+      ${yearOpts}
+    </select>`;
+    $('#salesTrendYear').addEventListener('change', e => {
+      state.salesTrend.year = e.target.value;
+      renderSalesTrendChart(state.salesTrend.range);
+    });
+  } else {
+    el.innerHTML = '';
+  }
+}
+
 function renderSalesTrendChart(range) {
+  // Sync state
+  state.salesTrend.range = range || state.salesTrend.range;
+
+  // Sync tab UI active state
+  const tabsEl = $('#salesTrendTabs');
+  if (tabsEl) {
+    tabsEl.querySelectorAll('.chart-tab').forEach(t => {
+      if (t.dataset.range === state.salesTrend.range) {
+        t.classList.add('active');
+      } else {
+        t.classList.remove('active');
+      }
+    });
+  }
+
+  // Compute period-aware data
+  let data;
+  if (state.salesTrend.range === 'daily')        data = getDailySalesTrendData();
+  else if (state.salesTrend.range === 'weekly')  data = getWeeklyTrendData();
+  else                                            data = getMonthlyTrendData();
+
+  // Ensure values array is always numbers (safe for Chart.js)
+  const safeValues = (data.values || []).map(v => (isNaN(v) ? 0 : v));
+
   if (state.charts.salesTrend) state.charts.salesTrend.destroy();
-  const lookback = range === 'daily' ? 7 : range === 'weekly' ? 8 : 6;
-  const grouped = groupByPeriod(state.sales, range, 'revenue');
-  const data = formatChartPeriodData(grouped, range, lookback);
 
   state.charts.salesTrend = new Chart($('#chartSalesTrend').getContext('2d'), {
     type: 'line',
     data: {
       labels: data.labels,
       datasets: [{
-        label: 'Penjualan', data: data.values, borderColor: '#D4A017', backgroundColor: 'rgba(244,196,48,.1)',
-        fill: true, tension: .4, pointRadius: 4, pointBackgroundColor: '#fff', pointBorderColor: '#D4A017', pointBorderWidth: 2, borderWidth: 2.5
+        label: 'Penjualan', data: safeValues,
+        borderColor: '#D4A017', backgroundColor: 'rgba(244,196,48,.1)',
+        fill: true, tension: .4, pointRadius: 4,
+        pointBackgroundColor: '#fff', pointBorderColor: '#D4A017',
+        pointBorderWidth: 2, borderWidth: 2.5
       }]
     },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => fmtRp(c.raw) } } }, scales: { x: { grid: { display: false }, ticks: { font: chartFont } }, y: { grid: chartGrid, ticks: { font: chartFont, callback: v => (v / 1000000).toFixed(1) + 'jt' } } } }
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: c => fmtRp(c.raw) } }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: chartFont } },
+        y: { grid: chartGrid, ticks: { font: chartFont, callback: v => (v / 1000000).toFixed(1) + 'jt' } }
+      }
+    }
   });
+
+  // Render appropriate filter controls for current tab
+  renderSalesTrendFilters();
 }
 
 document.addEventListener('click', e => {
   if (e.target.classList.contains('chart-tab') && e.target.closest('#salesTrendTabs')) {
     e.target.closest('.chart-tabs').querySelectorAll('.chart-tab').forEach(t => t.classList.remove('active'));
     e.target.classList.add('active');
-    renderSalesTrendChart(e.target.dataset.range);
+    // Persist range and re-render
+    state.salesTrend.range = e.target.dataset.range;
+    renderSalesTrendChart(state.salesTrend.range);
+  }
+  if (e.target.classList.contains('chart-tab') && e.target.closest('#revCostTrendTabs')) {
+    e.target.closest('.chart-tabs').querySelectorAll('.chart-tab').forEach(t => t.classList.remove('active'));
+    e.target.classList.add('active');
+    // Persist range and re-render
+    state.revCostTrend.range = e.target.dataset.range;
+    renderRevenueCostChart(state.revCostTrend.range);
+  }
+  if (e.target.classList.contains('chart-tab') && e.target.closest('#productionTrendTabs')) {
+    e.target.closest('.chart-tabs').querySelectorAll('.chart-tab').forEach(t => t.classList.remove('active'));
+    e.target.classList.add('active');
+    // Persist range and re-render
+    state.productionTrend.range = e.target.dataset.range;
+    renderProductionChart(state.productionTrend.range);
   }
 });
 
@@ -820,35 +1006,314 @@ function renderChannelChart() {
   });
 }
 
-function renderRevenueCostChart() {
+function getYearOptionsFromAllData() {
+  const years = new Set();
+  state.sales.forEach(s => {
+    const y = (s.date || '').substring(0, 4);
+    if (/^\d{4}$/.test(y)) years.add(y);
+  });
+  state.production.forEach(p => {
+    const y = (p.date || '').substring(0, 4);
+    if (/^\d{4}$/.test(y)) years.add(y);
+  });
+  years.add(String(new Date().getFullYear()));
+  return [...years].sort((a, b) => b.localeCompare(a));
+}
+
+function getDailyRevCostData() {
+  const anchor = new Date(state.revCostTrend.date);
+  if (isNaN(anchor)) return { labels: [], valuesRev: [], valuesCost: [] };
+  const labels = [], valuesRev = [], valuesCost = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(anchor);
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().split('T')[0];
+    const label = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+    const daySales = state.sales.filter(s => s.date === key);
+    const totalRev = daySales.reduce((sum, s) => sum + getTrendValue(s), 0);
+    const totalCost = daySales.reduce((sum, s) => sum + ((Number(s.costPrice) || 0) * (Number(s.quantity) || 0)), 0);
+    labels.push(label);
+    valuesRev.push(totalRev);
+    valuesCost.push(totalCost);
+  }
+  return { labels, valuesRev, valuesCost };
+}
+
+function getWeeklyRevCostData() {
+  const { month, year } = state.revCostTrend;
+  const filtered = state.sales.filter(s => matchesMonthYear(s.date, month, year));
+  const bucketsRev = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  const bucketsCost = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  filtered.forEach(s => {
+    const day = parseInt((s.date || '').substring(8, 10), 10);
+    if (!day) return;
+    const week = Math.min(Math.ceil(day / 7), 5);
+    bucketsRev[week] += getTrendValue(s);
+    bucketsCost[week] += (Number(s.costPrice) || 0) * (Number(s.quantity) || 0);
+  });
+  return {
+    labels: ['Minggu 1', 'Minggu 2', 'Minggu 3', 'Minggu 4', 'Minggu 5'],
+    valuesRev: [bucketsRev[1], bucketsRev[2], bucketsRev[3], bucketsRev[4], bucketsRev[5]],
+    valuesCost: [bucketsCost[1], bucketsCost[2], bucketsCost[3], bucketsCost[4], bucketsCost[5]]
+  };
+}
+
+function getMonthlyRevCostData() {
+  const { year } = state.revCostTrend;
+  const filtered = state.sales.filter(s => matchesMonthYear(s.date, 'all', year));
+  const MONTH_LABELS_SHORT = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+  const bucketsRev = Array(12).fill(0);
+  const bucketsCost = Array(12).fill(0);
+  filtered.forEach(s => {
+    const m = parseInt((s.date || '').substring(5, 7), 10);
+    if (m >= 1 && m <= 12) {
+      bucketsRev[m - 1] += getTrendValue(s);
+      bucketsCost[m - 1] += (Number(s.costPrice) || 0) * (Number(s.quantity) || 0);
+    }
+  });
+  return { labels: MONTH_LABELS_SHORT, valuesRev: bucketsRev, valuesCost: bucketsCost };
+}
+
+function getDailyProductionData() {
+  const anchor = new Date(state.productionTrend.date);
+  if (isNaN(anchor)) return { labels: [], values: [] };
+  const labels = [], values = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(anchor);
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().split('T')[0];
+    const label = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+    const total = state.production
+      .filter(p => p.date === key)
+      .reduce((sum, p) => sum + (Number(p.completedQty) || 0), 0);
+    labels.push(label);
+    values.push(total);
+  }
+  return { labels, values };
+}
+
+function getWeeklyProductionData() {
+  const { month, year } = state.productionTrend;
+  const filtered = state.production.filter(p => matchesMonthYear(p.date, month, year));
+  const buckets = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  filtered.forEach(p => {
+    const day = parseInt((p.date || '').substring(8, 10), 10);
+    if (!day) return;
+    const week = Math.min(Math.ceil(day / 7), 5);
+    buckets[week] += Number(p.completedQty) || 0;
+  });
+  return {
+    labels: ['Minggu 1', 'Minggu 2', 'Minggu 3', 'Minggu 4', 'Minggu 5'],
+    values: [buckets[1], buckets[2], buckets[3], buckets[4], buckets[5]]
+  };
+}
+
+function getMonthlyProductionData() {
+  const { year } = state.productionTrend;
+  const filtered = state.production.filter(p => matchesMonthYear(p.date, 'all', year));
+  const MONTH_LABELS_SHORT = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+  const buckets = Array(12).fill(0);
+  filtered.forEach(p => {
+    const m = parseInt((p.date || '').substring(5, 7), 10);
+    if (m >= 1 && m <= 12) buckets[m - 1] += Number(p.completedQty) || 0;
+  });
+  return { labels: MONTH_LABELS_SHORT, values: buckets };
+}
+
+function renderRevCostFilters() {
+  const el = $('#revCostTrendFilters');
+  if (!el) return;
+  const { range, date, month, year } = state.revCostTrend;
+  const yearOpts = getYearOptionsFromAllData().map(y =>
+    `<option value="${y}" ${state.revCostTrend.year === y ? 'selected' : ''}>${y}</option>`
+  ).join('');
+  const monthOpts = MONTH_OPTIONS.map(m =>
+    `<option value="${m.value}" ${state.revCostTrend.month === m.value ? 'selected' : ''}>${m.label}</option>`
+  ).join('');
+
+  if (range === 'daily') {
+    el.innerHTML = `<input type="date" class="form-input" id="revCostTrendDate" value="${date}"
+      style="height:30px;font-size:12px;padding:4px 10px;" max="${today}">`;
+    $('#revCostTrendDate').addEventListener('change', e => {
+      state.revCostTrend.date = e.target.value || today;
+      renderRevenueCostChart(state.revCostTrend.range);
+    });
+  } else if (range === 'weekly') {
+    el.innerHTML = `
+      <select class="form-input" id="revCostTrendMonth" style="height:30px;font-size:12px;padding:4px 10px;">
+        ${monthOpts}
+      </select>
+      <select class="form-input" id="revCostTrendYear" style="height:30px;font-size:12px;padding:4px 10px;">
+        ${yearOpts}
+      </select>`;
+    $('#revCostTrendMonth').addEventListener('change', e => {
+      state.revCostTrend.month = e.target.value;
+      renderRevenueCostChart(state.revCostTrend.range);
+    });
+    $('#revCostTrendYear').addEventListener('change', e => {
+      state.revCostTrend.year = e.target.value;
+      renderRevenueCostChart(state.revCostTrend.range);
+    });
+  } else if (range === 'monthly') {
+    el.innerHTML = `<select class="form-input" id="revCostTrendYear" style="height:30px;font-size:12px;padding:4px 10px;">
+      ${yearOpts}
+    </select>`;
+    $('#revCostTrendYear').addEventListener('change', e => {
+      state.revCostTrend.year = e.target.value;
+      renderRevenueCostChart(state.revCostTrend.range);
+    });
+  } else {
+    el.innerHTML = '';
+  }
+}
+
+function renderProductionFilters() {
+  const el = $('#productionTrendFilters');
+  if (!el) return;
+  const { range, date, month, year } = state.productionTrend;
+  const yearOpts = getYearOptionsFromAllData().map(y =>
+    `<option value="${y}" ${state.productionTrend.year === y ? 'selected' : ''}>${y}</option>`
+  ).join('');
+  const monthOpts = MONTH_OPTIONS.map(m =>
+    `<option value="${m.value}" ${state.productionTrend.month === m.value ? 'selected' : ''}>${m.label}</option>`
+  ).join('');
+
+  if (range === 'daily') {
+    el.innerHTML = `<input type="date" class="form-input" id="productionTrendDate" value="${date}"
+      style="height:30px;font-size:12px;padding:4px 10px;" max="${today}">`;
+    $('#productionTrendDate').addEventListener('change', e => {
+      state.productionTrend.date = e.target.value || today;
+      renderProductionChart(state.productionTrend.range);
+    });
+  } else if (range === 'weekly') {
+    el.innerHTML = `
+      <select class="form-input" id="productionTrendMonth" style="height:30px;font-size:12px;padding:4px 10px;">
+        ${monthOpts}
+      </select>
+      <select class="form-input" id="productionTrendYear" style="height:30px;font-size:12px;padding:4px 10px;">
+        ${yearOpts}
+      </select>`;
+    $('#productionTrendMonth').addEventListener('change', e => {
+      state.productionTrend.month = e.target.value;
+      renderProductionChart(state.productionTrend.range);
+    });
+    $('#productionTrendYear').addEventListener('change', e => {
+      state.productionTrend.year = e.target.value;
+      renderProductionChart(state.productionTrend.range);
+    });
+  } else if (range === 'monthly') {
+    el.innerHTML = `<select class="form-input" id="productionTrendYear" style="height:30px;font-size:12px;padding:4px 10px;">
+      ${yearOpts}
+    </select>`;
+    $('#productionTrendYear').addEventListener('change', e => {
+      state.productionTrend.year = e.target.value;
+      renderProductionChart(state.productionTrend.range);
+    });
+  } else {
+    el.innerHTML = '';
+  }
+}
+
+function renderRevenueCostChart(range) {
+  state.revCostTrend.range = range || state.revCostTrend.range;
+
+  // Sync tab UI active state
+  const tabsEl = $('#revCostTrendTabs');
+  if (tabsEl) {
+    tabsEl.querySelectorAll('.chart-tab').forEach(t => {
+      if (t.dataset.range === state.revCostTrend.range) {
+        t.classList.add('active');
+      } else {
+        t.classList.remove('active');
+      }
+    });
+  }
+
+  let labels = [];
+  let valuesRev = [];
+  let valuesCost = [];
+
+  if (state.revCostTrend.range === 'daily') {
+    const data = getDailyRevCostData();
+    labels = data.labels;
+    valuesRev = data.valuesRev;
+    valuesCost = data.valuesCost;
+  } else if (state.revCostTrend.range === 'weekly') {
+    const data = getWeeklyRevCostData();
+    labels = data.labels;
+    valuesRev = data.valuesRev;
+    valuesCost = data.valuesCost;
+  } else {
+    const data = getMonthlyRevCostData();
+    labels = data.labels;
+    valuesRev = data.valuesRev;
+    valuesCost = data.valuesCost;
+  }
+
+  // Ensure values array is always numbers (safe for Chart.js)
+  const safeRev = (valuesRev || []).map(v => (isNaN(v) ? 0 : v));
+  const safeCost = (valuesCost || []).map(v => (isNaN(v) ? 0 : v));
+
   if (state.charts.revCost) state.charts.revCost.destroy();
-  const groupedRev = groupByPeriod(state.sales, 'monthly', 'revenue');
-  const groupedCost = groupByPeriod(state.sales, 'monthly', 'costPrice', true);
-  const dataRev = formatChartPeriodData(groupedRev, 'monthly', 6);
-  const dataCost = formatChartPeriodData(groupedCost, 'monthly', 6);
 
   state.charts.revCost = new Chart($('#chartRevenueCost').getContext('2d'), {
     type: 'bar',
     data: {
-      labels: dataRev.labels,
+      labels: labels,
       datasets: [
-        { label: 'Pendapatan', data: dataRev.values, backgroundColor: 'rgba(244,196,48,.75)', borderRadius: 6, barPercentage: .55, categoryPercentage: .6 },
-        { label: 'Biaya', data: dataCost.values, backgroundColor: 'rgba(122,31,31,.55)', borderRadius: 6, barPercentage: .55, categoryPercentage: .6 }
+        { label: 'Pendapatan', data: safeRev, backgroundColor: 'rgba(244,196,48,.75)', borderRadius: 6, barPercentage: .55, categoryPercentage: .6 },
+        { label: 'Biaya', data: safeCost, backgroundColor: 'rgba(122,31,31,.55)', borderRadius: 6, barPercentage: .55, categoryPercentage: .6 }
       ]
     },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top', labels: { font: { ...chartFont, weight: '500' }, usePointStyle: true, pointStyle: 'circle', padding: 14 } }, tooltip: { callbacks: { label: c => c.dataset.label + ': ' + fmtRp(c.raw) } } }, scales: { x: { grid: { display: false }, ticks: { font: chartFont } }, y: { grid: chartGrid, ticks: { font: chartFont, callback: v => (v / 1000000).toFixed(1) + 'jt' } } } }
   });
+
+  renderRevCostFilters();
 }
 
-function renderProductionChart() {
+function renderProductionChart(range) {
+  state.productionTrend.range = range || state.productionTrend.range;
+
+  // Sync tab UI active state
+  const tabsEl = $('#productionTrendTabs');
+  if (tabsEl) {
+    tabsEl.querySelectorAll('.chart-tab').forEach(t => {
+      if (t.dataset.range === state.productionTrend.range) {
+        t.classList.add('active');
+      } else {
+        t.classList.remove('active');
+      }
+    });
+  }
+
+  let labels = [];
+  let values = [];
+
+  if (state.productionTrend.range === 'daily') {
+    const data = getDailyProductionData();
+    labels = data.labels;
+    values = data.values;
+  } else if (state.productionTrend.range === 'weekly') {
+    const data = getWeeklyProductionData();
+    labels = data.labels;
+    values = data.values;
+  } else {
+    const data = getMonthlyProductionData();
+    labels = data.labels;
+    values = data.values;
+  }
+
+  // Ensure values array is always numbers (safe for Chart.js)
+  const safeValues = (values || []).map(v => (isNaN(v) ? 0 : v));
+
   if (state.charts.production) state.charts.production.destroy();
-  const grouped = groupByPeriod(state.production, 'monthly', 'completedQty');
-  const data = formatChartPeriodData(grouped, 'monthly', 6);
 
   state.charts.production = new Chart($('#chartProduction').getContext('2d'), {
-    type: 'bar', data: { labels: data.labels, datasets: [{ label: 'Unit Diproduksi', data: data.values, backgroundColor: 'rgba(22,163,74,.65)', borderRadius: 6, barPercentage: .5, categoryPercentage: .6 }] },
+    type: 'bar', data: { labels: labels, datasets: [{ label: 'Unit Diproduksi', data: safeValues, backgroundColor: 'rgba(22,163,74,.65)', borderRadius: 6, barPercentage: .5, categoryPercentage: .6 }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, ticks: { font: chartFont } }, y: { grid: chartGrid, ticks: { font: chartFont } } } }
   });
+
+  renderProductionFilters();
 }
 
 function renderCategoryChart() {
@@ -1769,6 +2234,11 @@ function renderSales() {
     );
   }
   if (state.sale.channel !== 'all') list = list.filter(s => s.channel === state.sale.channel);
+  // Phase 6.2 — month/year filter
+  if (state.sale.month !== 'all' || state.sale.year !== 'all')
+    list = list.filter(s => matchesMonthYear(s.date, state.sale.month, state.sale.year));
+  // Repopulate period dropdowns so year list stays fresh
+  populateSalePeriodFilters();
   const { page, perPage } = state.sale;
   const total = Math.max(1, Math.ceil(list.length / perPage));
   if (page > total) state.sale.page = total;
@@ -1807,6 +2277,9 @@ window.goSalePage = function (n) { state.sale.page = n; renderSales(); };
 let saleSearchTimeout;
  $('#saleSearch').addEventListener('input', e => { clearTimeout(saleSearchTimeout); saleSearchTimeout = setTimeout(() => { state.sale.search = e.target.value; state.sale.page = 1; renderSales() }, 200) });
  $('#saleChannelFilter').addEventListener('change', e => { state.sale.channel = e.target.value; state.sale.page = 1; renderSales() });
+// Phase 6.2 — period filter listeners (elements added in InztamotoApp.jsx)
+ $('#saleMonthFilter').addEventListener('change', e => { state.sale.month = e.target.value; state.sale.page = 1; renderSales() });
+ $('#saleYearFilter').addEventListener('change',  e => { state.sale.year  = e.target.value; state.sale.page = 1; renderSales() });
 
  $('#addSaleBtn').addEventListener('click', () => {
   const opts = state.products.filter(p => p.stock > 0).map(p => `<option value="${p.id}">${p.name} (${p.sku}) — ${fmtRp(p.sellingPrice)}</option>`).join('');
@@ -2027,7 +2500,7 @@ function renderBelanjaProduksi() {
           <option value="closed" ${status === 'closed' ? 'selected' : ''}>Closed</option>
         </select>
       </div>
-      <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+      <div class="responsive-action-group" style="margin-left:auto;display:flex;gap:8px;align-items:center">
         <span style="font-size:13px;color:var(--text-muted)">Total ${weekKeyLabel(selectedWeek)}: <strong style="color:var(--text)">${fmtRp(weeklyTotal)}</strong></span>
         <button class="btn btn-outline btn-sm" onclick="closeWeek('${selectedWeek}')"><i class="fas fa-lock"></i>Tutup Minggu</button>
         <button class="btn btn-primary btn-sm" onclick="openAddPurchaseModal()"><i class="fas fa-plus"></i>Tambah Belanja</button>
@@ -2569,24 +3042,33 @@ window.doDeletePayroll = async function(id) {
    ========================================================= */
 function renderReports() {
   const type = $('#reportType').value;
-  // Gunakan helpers agar konsisten dengan Dashboard
-  const totalRev    = state.sales.reduce((s, x) => s + getSaleRevenue(x), 0);
-  const totalCost   = state.sales.reduce((s, x) => s + ((x.costPrice || 0) * (x.quantity || 0)), 0);
-  const totalProfit = state.sales.reduce((s, x) => s + getSaleProfit(x), 0);
-  const totalProdExp    = getProductionExpenseTotal('');
-  const totalPayrollExp = getPayrollExpenseTotal('');
+  const { month, year } = state.report;
+
+  // Phase 6.3 — filtered data lists for period-aware metrics
+  const rSales     = state.sales.filter(s => matchesMonthYear(s.date, month, year));
+  const rPurchases = state.productionPurchases.filter(p => matchesMonthYear(p.date, month, year));
+  const rPayrolls  = state.payrolls.filter(p => {
+    const periodDate = p.period ? `${p.period}-01` : (p.paymentDate || '');
+    return matchesMonthYear(periodDate, month, year);
+  });
+
+  const totalRev     = rSales.reduce((s, x) => s + getSaleRevenue(x), 0);
+  const totalCost    = rSales.reduce((s, x) => s + ((x.costPrice || 0) * (x.quantity || 0)), 0);
+  const totalProfit  = rSales.reduce((s, x) => s + getSaleProfit(x), 0);
+  const totalProdExp    = rPurchases.reduce((s, p) => s + (Number(p.totalCost) || 0), 0);
+  const totalPayrollExp = rPayrolls.reduce((s, p) => s + (Number(p.totalPaid) || 0), 0);
   const totalNetProfit  = totalProfit - totalProdExp - totalPayrollExp;
   const marginPct = totalRev > 0 ? Math.round(totalProfit / totalRev * 100) : 0;
 
-  const getTopChannel = () => { const ch = {}; state.sales.forEach(s => { ch[s.channel] = (ch[s.channel] || 0) + 1 }); const e = Object.entries(ch).sort((a, b) => b[1] - a[1]); return e.length ? e[0][0] : '-' };
-  const getBestSeller = () => { const ps = {}; state.sales.forEach(s => { ps[s.productId] = (ps[s.productId] || 0) + (s.revenue || 0) }); const e = Object.entries(ps).sort((a, b) => b[1] - a[1]); return e.length ? (state.products.find(p => p.id === e[0][0]) || {}).name || '-' : '-' };
-  const getTopCategory = () => { const cs = {}; state.sales.forEach(s => { const p = state.products.find(x => x.id === s.productId); if (p) { const cn = getCatName(p.categoryId); cs[cn] = (cs[cn] || 0) + (s.revenue || 0) } }); const e = Object.entries(cs).sort((a, b) => b[1] - a[1]); return e.length ? e[0][0] : '-' };
+  const getTopChannel  = () => { const ch = {}; rSales.forEach(s => { ch[s.channel] = (ch[s.channel] || 0) + 1 }); const e = Object.entries(ch).sort((a, b) => b[1] - a[1]); return e.length ? e[0][0] : '-' };
+  const getBestSeller  = () => { const ps = {}; rSales.forEach(s => { ps[s.productId] = (ps[s.productId] || 0) + getSaleRevenue(s) }); const e = Object.entries(ps).sort((a, b) => b[1] - a[1]); return e.length ? (state.products.find(p => p.id === e[0][0]) || {}).name || '-' : '-' };
+  const getTopCategory = () => { const cs = {}; rSales.forEach(s => { const p = state.products.find(x => x.id === s.productId); if (p) { const cn = getCatName(p.categoryId); cs[cn] = (cs[cn] || 0) + getSaleRevenue(s) } }); const e = Object.entries(cs).sort((a, b) => b[1] - a[1]); return e.length ? e[0][0] : '-' };
 
   const statsMap = {
     sales: [
-      { label: 'Total Transaksi', value: state.sales.length, cls: 'gold' },
+      { label: 'Total Transaksi', value: rSales.length, cls: 'gold' },
       { label: 'Total Pendapatan', value: fmtRp(totalRev), cls: 'green' },
-      { label: 'Rata-rata/Transaksi', value: fmtRp(state.sales.length > 0 ? Math.round(totalRev / state.sales.length) : 0), cls: 'maroon' },
+      { label: 'Rata-rata/Transaksi', value: fmtRp(rSales.length > 0 ? Math.round(totalRev / rSales.length) : 0), cls: 'maroon' },
       { label: 'Channel Terbanyak', value: getTopChannel(), cls: 'gold' }
     ],
     profit: [
@@ -2611,7 +3093,7 @@ function renderReports() {
       { label: 'Stok Habis', value: state.products.filter(p => p.status === 'out_of_stock').length, cls: 'red' }
     ],
     bestseller: [
-      { label: 'Total Terjual', value: state.sales.reduce((s, x) => s + (x.quantity || 0), 0) + ' unit', cls: 'gold' },
+      { label: 'Total Terjual', value: rSales.reduce((s, x) => s + (x.quantity || 0), 0) + ' unit', cls: 'gold' },
       { label: 'Produk Terlaris', value: getBestSeller(), cls: 'green' },
       { label: 'Kategori Terlaris', value: getTopCategory(), cls: 'maroon' },
       { label: 'Total Pendapatan', value: fmtRp(totalRev), cls: 'gold' }
@@ -2622,26 +3104,30 @@ function renderReports() {
     `<div class="stat-card ${s.cls}"><div class="sc-label">${s.label}</div><div class="sc-value" style="font-size:17px;margin-top:8px;word-break:break-word">${s.value}</div></div>`
   ).join('');
 
-  renderReportChart(type);
-  renderReportDetail(type);
+  // Refresh filter dropdowns so year list stays current
+  populateReportPeriodFilters();
+
+  renderReportChart(type, rSales);
+  renderReportDetail(type, rSales);
 }
 
-function renderReportChart(type) {
+function renderReportChart(type, rSales) {
+  // rSales: period-filtered sales list passed from renderReports()
+  const filteredSales = rSales || state.sales;
   if (state.charts.report) state.charts.report.destroy();
   const ctx = $('#chartReport').getContext('2d');
   let config;
 
   if (type === 'sales' || type === 'bestseller') {
-    const ps = {}; state.sales.forEach(s => { ps[s.productName] = (ps[s.productName] || 0) + (s.revenue || 0) });
+    const ps = {}; filteredSales.forEach(s => { ps[s.productName] = (ps[s.productName] || 0) + getSaleRevenue(s) });
     const sorted = Object.entries(ps).sort((a, b) => b[1] - a[1]).slice(0, 8);
     config = { type: 'bar', data: { labels: sorted.map(x => x[0].length > 18 ? x[0].substring(0, 18) + '...' : x[0]), datasets: [{ label: 'Pendapatan', data: sorted.map(x => x[1]), backgroundColor: 'rgba(244,196,48,.75)', borderRadius: 5, barPercentage: .6 }] }, options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => fmtRp(c.raw) } } }, scales: { x: { grid: chartGrid, ticks: { font: chartFont, callback: v => (v / 1000000).toFixed(1) + 'jt' } }, y: { grid: { display: false }, ticks: { font: { size: 10 } } } } } };
   } else if (type === 'profit') {
-    const groupedRev = groupByPeriod(state.sales, 'monthly', 'revenue');
-    const groupedCost = groupByPeriod(state.sales, 'monthly', 'costPrice', true);
-    const dataRev = formatChartPeriodData(groupedRev, 'monthly', 6);
+    const groupedRev  = groupByPeriod(filteredSales, 'monthly', 'revenue');
+    const groupedCost = groupByPeriod(filteredSales, 'monthly', 'costPrice', true);
+    const dataRev  = formatChartPeriodData(groupedRev,  'monthly', 6);
     const dataCost = formatChartPeriodData(groupedCost, 'monthly', 6);
     const profitValues = dataRev.values.map((rev, i) => rev - (dataCost.values[i] || 0));
-
     config = {
       type: 'bar',
       data: {
@@ -2666,9 +3152,11 @@ function renderReportChart(type) {
   state.charts.report = new Chart(ctx, config);
 }
 
-function renderReportDetail(type) {
+function renderReportDetail(type, rSales) {
+  // rSales: period-filtered sales list passed from renderReports()
+  const filteredSales = rSales || state.sales;
   if (type === 'sales' || type === 'bestseller') {
-    const ps = {}; state.sales.forEach(s => { if (!ps[s.productId]) ps[s.productId] = { name: s.productName, productId: s.productId, qty: 0, rev: 0 }; ps[s.productId].qty += (s.quantity || 0); ps[s.productId].rev += (s.revenue || 0) });
+    const ps = {}; filteredSales.forEach(s => { if (!ps[s.productId]) ps[s.productId] = { name: s.productName, productId: s.productId, qty: 0, rev: 0 }; ps[s.productId].qty += (s.quantity || 0); ps[s.productId].rev += getSaleRevenue(s) });
     const sorted = Object.values(ps).sort((a, b) => b.rev - a.rev).slice(0, 10);
     const totalRev = sorted.reduce((s, x) => s + x.rev, 0);
     $('#reportDetail').innerHTML = sorted.map((p, i) => {
@@ -2676,7 +3164,7 @@ function renderReportDetail(type) {
       return `<div class="rank-item">${prodImg(prod, 32)}<div class="rank-num ${i === 0 ? 'g' : i === 1 ? 's' : i === 2 ? 'b' : 'n'}">${i + 1}</div><div class="rank-info"><div class="name">${p.name}</div><div class="sub">${p.qty} unit</div><div class="progress-bar" style="width:110px"><div class="fill fill-gold" style="width:${pct(p.rev, totalRev)}%"></div></div></div><div class="rank-val">${fmtRp(p.rev)}<small>${pct(p.rev, totalRev)}%</small></div></div>`;
     }).join('') || '<div class="empty-state"><i class="fas fa-chart-bar"></i><h4>Belum ada data</h4></div>';
   } else if (type === 'profit') {
-    const ps = {}; state.sales.forEach(s => { if (!ps[s.productId]) ps[s.productId] = { name: s.productName, productId: s.productId, rev: 0, cost: 0, profit: 0 }; ps[s.productId].rev += (s.revenue || 0); ps[s.productId].cost += (s.costPrice || 0) * (s.quantity || 0); ps[s.productId].profit += (s.profit || 0) });
+    const ps = {}; filteredSales.forEach(s => { if (!ps[s.productId]) ps[s.productId] = { name: s.productName, productId: s.productId, rev: 0, cost: 0, profit: 0 }; ps[s.productId].rev += getSaleRevenue(s); ps[s.productId].cost += (s.costPrice || 0) * (s.quantity || 0); ps[s.productId].profit += getSaleProfit(s) });
     const sorted = Object.values(ps).sort((a, b) => b.profit - a.profit).slice(0, 10);
     $('#reportDetail').innerHTML = sorted.map(p => {
       const prod = state.products.find(x => x.id === p.productId);
@@ -2697,16 +3185,23 @@ function renderReportDetail(type) {
 
  $('#reportType').addEventListener('change', renderReports);
  $('#reportPeriod').addEventListener('change', renderReports);
+// Phase 6.3 — report period filter listeners
+ $('#reportMonthFilter').addEventListener('change', e => { state.report.month = e.target.value; renderReports(); });
+ $('#reportYearFilter').addEventListener('change',  e => { state.report.year  = e.target.value; renderReports(); });
 
  $('#exportCsvBtn').addEventListener('click', () => {
+  // Phase 6.3 — export follows active state.report period filter
   const type = $('#reportType').value;
+  const { month, year } = state.report;
+  const rSales = state.sales.filter(s => matchesMonthYear(s.date, month, year));
+  const periodLabel = year === 'all' ? 'semua' : (month !== 'all' ? `${year}-${month}` : year);
   let csv = '\uFEFF';
   if (type === 'sales') {
     csv += 'No Transaksi,Tanggal,Produk,SKU,Qty,Channel,Pendapatan,Keuntungan\n';
-    state.sales.forEach(s => { csv += `"${s.txNumber}","${s.date}","${s.productName}","${s.sku}",${s.quantity},"${s.channel}",${s.revenue},${s.profit}\n` });
+    rSales.forEach(s => { csv += `"${s.txNumber}","${s.date}","${s.productName}","${s.sku}",${s.quantity},"${s.channel}",${getSaleRevenue(s)},${getSaleProfit(s)}\n` });
   } else if (type === 'profit') {
     csv += 'Produk,Pendapatan,Biaya,Laba,Margin\n';
-    const ps = {}; state.sales.forEach(s => { if (!ps[s.productId]) ps[s.productId] = { name: s.productName, rev: 0, cost: 0, profit: 0 }; ps[s.productId].rev += (s.revenue || 0); ps[s.productId].cost += (s.costPrice || 0) * (s.quantity || 0); ps[s.productId].profit += (s.profit || 0) });
+    const ps = {}; rSales.forEach(s => { if (!ps[s.productId]) ps[s.productId] = { name: s.productName, rev: 0, cost: 0, profit: 0 }; ps[s.productId].rev += getSaleRevenue(s); ps[s.productId].cost += (s.costPrice || 0) * (s.quantity || 0); ps[s.productId].profit += getSaleProfit(s) });
     Object.values(ps).forEach(p => { csv += `"${p.name}",${p.rev},${p.cost},${p.profit},${p.rev > 0 ? Math.round(p.profit / p.rev * 100) : 0}%\n` });
   } else if (type === 'production') {
     csv += 'Produk,SKU,Target,Selesai,Status,Tanggal\n';
@@ -2716,12 +3211,12 @@ function renderReportDetail(type) {
     state.products.forEach(p => { csv += `"${p.sku}","${p.name}",${p.stock},"${p.status}","${(p.images && p.images[0]) ? p.images[0].imageUrl : ''}"\n` });
   } else {
     csv += 'Produk,SKU,Total Terjual,Pendapatan\n';
-    const ps = {}; state.sales.forEach(s => { if (!ps[s.productId]) ps[s.productId] = { name: s.productName, sku: s.sku, qty: 0, rev: 0 }; ps[s.productId].qty += (s.quantity || 0); ps[s.productId].rev += (s.revenue || 0) });
+    const ps = {}; rSales.forEach(s => { if (!ps[s.productId]) ps[s.productId] = { name: s.productName, sku: s.sku, qty: 0, rev: 0 }; ps[s.productId].qty += (s.quantity || 0); ps[s.productId].rev += getSaleRevenue(s) });
     Object.values(ps).sort((a, b) => b.rev - a.rev).forEach(p => { csv += `"${p.name}","${p.sku}",${p.qty},${p.rev}\n` });
   }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
-  a.download = `laporan_${type}_${today}.csv`;
+  a.download = `laporan_${type}_${periodLabel}_${today}.csv`;
   a.click();
   toast('Laporan di-export ke CSV', 'success');
 });
@@ -2729,10 +3224,158 @@ function renderReportDetail(type) {
 /* =========================================================
    PENGGUNA
    ========================================================= */
+const SECONDARY_REGISTER_APP_NAME = 'secondary-register-app';
+
+function isCurrentUserOwner() {
+  return getCurrentUserRole() === 'owner';
+}
+
+function renderUserRegisterAction() {
+  const toolbar = $('#pagePengguna .table-toolbar');
+  if (!toolbar) return;
+
+  const existingBtn = $('#registerUserBtn');
+  if (existingBtn) existingBtn.remove();
+
+  if (!isCurrentUserOwner()) return;
+
+  toolbar.insertAdjacentHTML('beforeend', `
+    <button class="btn btn-primary btn-sm" id="registerUserBtn" style="margin-left:auto" onclick="openRegisterUserModal()">
+      <i class="fas fa-user-plus"></i>Tambah Pengguna
+    </button>
+  `);
+}
+
+function getSecondaryRegisterAuth() {
+  let secondaryApp;
+  try {
+    secondaryApp = firebase.app(SECONDARY_REGISTER_APP_NAME);
+  } catch (err) {
+    secondaryApp = firebase.initializeApp(firebaseConfig, SECONDARY_REGISTER_APP_NAME);
+  }
+  return secondaryApp.auth();
+}
+
+function isValidRegisterEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function registerErrorMessage(err) {
+  const code = err && err.code ? err.code : '';
+  if (code === 'auth/email-already-in-use') return 'Email sudah terdaftar';
+  if (code === 'auth/invalid-email') return 'Format email tidak valid';
+  if (code === 'auth/weak-password') return 'Password minimal 6 karakter';
+  if (code === 'permission-denied') return 'Tidak punya izin menyimpan profil user';
+  return (err && err.message) || 'Gagal membuat akun';
+}
+
+window.openRegisterUserModal = function() {
+  if (!isCurrentUserOwner()) {
+    toast('Hanya Owner yang dapat menambah pengguna', 'error');
+    return;
+  }
+
+  openModal('Register Akun', `
+    <div class="form-group">
+      <label>Nama</label>
+      <input type="text" class="form-input" id="fRegName" placeholder="Nama lengkap">
+    </div>
+    <div class="form-group">
+      <label>Email</label>
+      <input type="email" class="form-input" id="fRegEmail" placeholder="user@domain.com">
+    </div>
+    <div class="form-group">
+      <label>Password Sementara</label>
+      <input type="password" class="form-input" id="fRegPassword" placeholder="Minimal 6 karakter" autocomplete="new-password">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Role</label>
+        <select class="form-input" id="fRegRole">
+          <option value="Owner">Owner</option>
+          <option value="Admin" selected>Admin</option>
+          <option value="Staff">Staff</option>
+          <option value="User">User</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Status</label>
+        <select class="form-input" id="fRegStatus">
+          <option value="Aktif" selected>Aktif</option>
+          <option value="Nonaktif">Nonaktif</option>
+        </select>
+      </div>
+    </div>
+  `, `<button class="btn btn-outline btn-sm" onclick="closeModal()">Batal</button><button class="btn btn-primary btn-sm" id="saveRegisterUserBtn" onclick="saveRegisterUser()"><i class="fas fa-check"></i>Simpan</button>`);
+};
+
+window.saveRegisterUser = async function() {
+  if (!isCurrentUserOwner()) {
+    toast('Hanya Owner yang dapat menambah pengguna', 'error');
+    return;
+  }
+
+  const name = ($('#fRegName')?.value || '').trim();
+  const email = ($('#fRegEmail')?.value || '').trim().toLowerCase();
+  const password = $('#fRegPassword')?.value || '';
+  const role = $('#fRegRole')?.value || '';
+  const status = $('#fRegStatus')?.value || '';
+
+  if (!name) { toast('Nama wajib diisi', 'warning'); return; }
+  if (!email || !isValidRegisterEmail(email)) { toast('Email tidak valid', 'warning'); return; }
+  if (password.length < 6) { toast('Password minimal 6 karakter', 'warning'); return; }
+  if (!role) { toast('Role wajib dipilih', 'warning'); return; }
+  if (!status) { toast('Status wajib dipilih', 'warning'); return; }
+
+  const btn = $('#saveRegisterUserBtn');
+  const originalHtml = btn ? btn.innerHTML : '';
+  let secondaryAuth = null;
+  let secondarySignedOut = false;
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Menyimpan...';
+  }
+
+  try {
+    secondaryAuth = getSecondaryRegisterAuth();
+    const cred = await secondaryAuth.createUserWithEmailAndPassword(email, password);
+    const uid = cred.user.uid;
+    const now = new Date().toISOString();
+
+    await db.collection('users').doc(uid).set({
+      name,
+      email,
+      role,
+      status,
+      createdAt: now,
+      updatedAt: now
+    });
+
+    await secondaryAuth.signOut();
+    secondarySignedOut = true;
+    closeModal();
+    toast('Akun pengguna berhasil dibuat', 'success');
+  } catch (err) {
+    console.error('saveRegisterUser error:', err);
+    toast(registerErrorMessage(err), 'error');
+  } finally {
+    if (secondaryAuth && !secondarySignedOut) {
+      try { await secondaryAuth.signOut(); } catch (err) { console.warn('secondary signOut error:', err); }
+    }
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  }
+};
+
 function renderUsers() {
+  renderUserRegisterAction();
+
   const roleBadge = r => {
     const role = r || 'User';
-    const m = { Owner: 'badge-website', Admin: 'badge-in_production', Warehouse: 'badge-in_progress', 'Production Team': 'badge-qc', User: 'badge-offline_store' };
+    const m = { Owner: 'badge-website', Admin: 'badge-in_production', Staff: 'badge-qc', Warehouse: 'badge-in_progress', 'Production Team': 'badge-qc', User: 'badge-offline_store' };
     return `<span class="badge ${m[role] || 'badge-offline_store'}">${role}</span>`;
   };
 
@@ -2769,15 +3412,54 @@ document.addEventListener('click', e => {
   }
 });
 
- $('#saveProfileBtn').addEventListener('click', () => {
+ $('#saveProfileBtn').addEventListener('click', async () => {
   const name = $('#settingNameInput').value.trim();
   if (!name) { toast('Nama tidak boleh kosong', 'warning'); return; }
-  state.user.name = name;
-  $('#userName').textContent = name;
-  $('#settingsName').textContent = name;
-  $('#userAvatar').textContent = name.charAt(0).toUpperCase();
-  $('#settingsAvatar').textContent = name.charAt(0).toUpperCase();
-  toast('Profil disimpan', 'success');
+
+  const btn = $('#saveProfileBtn');
+  const originalHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Menyimpan...';
+  }
+
+  try {
+    const target = await findCurrentUserProfileRef();
+    if (!target || !target.ref) {
+      toast('Profil user tidak ditemukan', 'error');
+      return;
+    }
+
+    const current = auth.currentUser;
+    const existing = target.data || {};
+    const currentStateUser = state.user || {};
+    const email = existing.email || currentStateUser.email || current?.email || '';
+    const role = existing.role || currentStateUser.role || 'User';
+    const status = existing.status || currentStateUser.status || 'Aktif';
+    const updatedAt = new Date().toISOString();
+
+    const profilePayload = { name, email, role, status, updatedAt };
+    await target.ref.set(profilePayload, { merge: true });
+
+    state.user = {
+      ...currentStateUser,
+      name,
+      email,
+      role,
+      status,
+      updatedAt
+    };
+    updateUserDisplay(state.user);
+    toast('Profil disimpan', 'success');
+  } catch (err) {
+    console.error('saveProfile error:', err);
+    toast(err.message || 'Gagal menyimpan profil', 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  }
 });
 
 /* =========================================================
@@ -2813,6 +3495,80 @@ document.addEventListener('click', e => {
 });
 
 /* =========================================================
+   PHASE 6 HELPERS — FINAL CLIENT UPDATES
+   ========================================================= */
+
+const MONTH_OPTIONS = [
+  { value: '01', label: 'Januari' },
+  { value: '02', label: 'Februari' },
+  { value: '03', label: 'Maret' },
+  { value: '04', label: 'April' },
+  { value: '05', label: 'Mei' },
+  { value: '06', label: 'Juni' },
+  { value: '07', label: 'Juli' },
+  { value: '08', label: 'Agustus' },
+  { value: '09', label: 'September' },
+  { value: '10', label: 'Oktober' },
+  { value: '11', label: 'November' },
+  { value: '12', label: 'Desember' }
+];
+
+function getYearOptionsFromSales() {
+  const years = new Set();
+  state.sales.forEach(s => {
+    const y = (s.date || '').substring(0, 4);
+    if (/^\d{4}$/.test(y)) years.add(y);
+  });
+  years.add(String(new Date().getFullYear()));
+  return [...years].sort((a, b) => b.localeCompare(a));
+}
+
+function matchesMonthYear(dateStr, month, year) {
+  if (!dateStr || typeof dateStr !== 'string') return month === 'all' && year === 'all';
+  const y = dateStr.substring(0, 4);
+  const m = dateStr.substring(5, 7);
+  if (year  !== 'all' && y !== year)  return false;
+  if (month !== 'all' && m !== month) return false;
+  return true;
+}
+
+function populateSalePeriodFilters() {
+  const monthSel = $('#saleMonthFilter');
+  const yearSel  = $('#saleYearFilter');
+  if (!monthSel || !yearSel) return;
+  const monthOpts = MONTH_OPTIONS.map(m =>
+    `<option value="${m.value}" ${state.sale.month === m.value ? 'selected' : ''}>${m.label}</option>`
+  ).join('');
+  monthSel.innerHTML = `<option value="all" ${state.sale.month === 'all' ? 'selected' : ''}>Semua Bulan</option>${monthOpts}`;
+  const yearOpts = getYearOptionsFromSales().map(y =>
+    `<option value="${y}" ${state.sale.year === y ? 'selected' : ''}>${y}</option>`
+  ).join('');
+  yearSel.innerHTML = `<option value="all" ${state.sale.year === 'all' ? 'selected' : ''}>Semua Tahun</option>${yearOpts}`;
+}
+
+// Phase 6.3 — populate Laporan period filter dropdowns
+function populateReportPeriodFilters() {
+  const monthSel = $('#reportMonthFilter');
+  const yearSel  = $('#reportYearFilter');
+  if (!monthSel || !yearSel) return;
+  const monthOpts = MONTH_OPTIONS.map(m =>
+    `<option value="${m.value}" ${state.report.month === m.value ? 'selected' : ''}>${m.label}</option>`
+  ).join('');
+  monthSel.innerHTML = `<option value="all" ${state.report.month === 'all' ? 'selected' : ''}>Semua Bulan</option>${monthOpts}`;
+  // Year list drawn from all data sources
+  const years = new Set();
+  state.sales.forEach(s => { const y = (s.date || '').substring(0, 4); if (/^\d{4}$/.test(y)) years.add(y); });
+  state.productionPurchases.forEach(p => { const y = (p.date || '').substring(0, 4); if (/^\d{4}$/.test(y)) years.add(y); });
+  state.payrolls.forEach(p => { const y = (p.period || p.paymentDate || '').substring(0, 4); if (/^\d{4}$/.test(y)) years.add(y); });
+  years.add(String(new Date().getFullYear()));
+  const sortedYears = [...years].sort((a, b) => b.localeCompare(a));
+  const yearOpts = sortedYears.map(y =>
+    `<option value="${y}" ${state.report.year === y ? 'selected' : ''}>${y}</option>`
+  ).join('');
+  yearSel.innerHTML = `<option value="all" ${state.report.year === 'all' ? 'selected' : ''}>Semua Tahun</option>${yearOpts}`;
+}
+
+/* =========================================================
    INISIALISASI APLIKASI
    ========================================================= */
 
@@ -2822,6 +3578,42 @@ document.addEventListener('click', e => {
  * @param {object} firebaseUser — firebase.auth().currentUser
  * @returns {Promise<object>} state.user shape { name, email, role, status }
  */
+async function findCurrentUserProfileRef() {
+  const current = auth.currentUser;
+  const email = (state.user && state.user.email) || current?.email || '';
+  let uidRef = null;
+
+  if (current?.uid) {
+    uidRef = db.collection('users').doc(current.uid);
+    const uidSnap = await uidRef.get();
+    if (uidSnap.exists) {
+      return { ref: uidRef, data: uidSnap.data() || {} };
+    }
+  }
+
+  if (email) {
+    const emailRef = db.collection('users').doc(email);
+    const emailSnap = await emailRef.get();
+    if (emailSnap.exists) {
+      return { ref: emailRef, data: emailSnap.data() || {} };
+    }
+
+    const emailQuery = await db.collection('users').where('email', '==', email).limit(1).get();
+    if (!emailQuery.empty) {
+      const doc = emailQuery.docs[0];
+      return { ref: doc.ref, data: doc.data() || {} };
+    }
+
+    return { ref: uidRef || emailRef, data: {} };
+  }
+
+  if (uidRef) {
+    return { ref: uidRef, data: {} };
+  }
+
+  return null;
+}
+
 async function loadUserProfile(firebaseUser) {
   const fallback = {
     name: firebaseUser.displayName || firebaseUser.email.split('@')[0],

@@ -91,7 +91,7 @@ export default function InztamotoApp() {
               <i className="fas fa-shopping-basket"></i>Belanja Produksi
             </a>
             <a href="#" className="nav-item" data-page="gajiKaryawan">
-              <i className="fas fa-money-bill-wave"></i>Gaji Karyawan
+              <i className="fas fa-money-bill-wave"></i>Team Salary
             </a>
             <a href="#" className="nav-item" data-page="inventaris">
               <i className="fas fa-boxes-stacked"></i>Stock Control
@@ -151,10 +151,13 @@ export default function InztamotoApp() {
                 <div className="card">
                   <div className="card-header">
                     <h3>Tren Penjualan</h3>
-                    <div className="chart-tabs" id="salesTrendTabs">
-                      <button className="chart-tab active" data-range="daily">Harian</button>
-                      <button className="chart-tab" data-range="weekly">Mingguan</button>
-                      <button className="chart-tab" data-range="monthly">Bulanan</button>
+                    <div className="chart-header-actions">
+                      <div id="salesTrendFilters" className="chart-trend-filters"></div>
+                      <div className="chart-tabs" id="salesTrendTabs">
+                        <button className="chart-tab active" data-range="daily">Harian</button>
+                        <button className="chart-tab" data-range="weekly">Mingguan</button>
+                        <button className="chart-tab" data-range="monthly">Bulanan</button>
+                      </div>
                     </div>
                   </div>
                   <div className="card-body">
@@ -170,13 +173,33 @@ export default function InztamotoApp() {
               </div>
               <div className="grid-2">
                 <div className="card">
-                  <div className="card-header"><h3>Pendapatan vs Biaya</h3></div>
+                  <div className="card-header">
+                    <h3>Pendapatan vs Biaya</h3>
+                    <div className="chart-header-actions">
+                      <div id="revCostTrendFilters" className="chart-trend-filters"></div>
+                      <div className="chart-tabs" id="revCostTrendTabs">
+                        <button className="chart-tab" data-range="daily">Harian</button>
+                        <button className="chart-tab" data-range="weekly">Mingguan</button>
+                        <button className="chart-tab active" data-range="monthly">Bulanan</button>
+                      </div>
+                    </div>
+                  </div>
                   <div className="card-body">
                     <div className="chart-wrap"><canvas id="chartRevenueCost"></canvas></div>
                   </div>
                 </div>
                 <div className="card">
-                  <div className="card-header"><h3>Tren Produksi</h3></div>
+                  <div className="card-header">
+                    <h3>Tren Produksi</h3>
+                    <div className="chart-header-actions">
+                      <div id="productionTrendFilters" className="chart-trend-filters"></div>
+                      <div className="chart-tabs" id="productionTrendTabs">
+                        <button className="chart-tab" data-range="daily">Harian</button>
+                        <button className="chart-tab" data-range="weekly">Mingguan</button>
+                        <button className="chart-tab active" data-range="monthly">Bulanan</button>
+                      </div>
+                    </div>
+                  </div>
                   <div className="card-body">
                     <div className="chart-wrap"><canvas id="chartProduction"></canvas></div>
                   </div>
@@ -293,7 +316,7 @@ export default function InztamotoApp() {
                   <div className="table-filter">
                     <input type="date" className="form-input" id="prodDateFilter" style={{fontSize:'13px',padding:'8px 12px'}} title="Filter tanggal produksi" />
                   </div>
-                  <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+                  <div className="responsive-action-group" style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
                     <button className="btn btn-outline btn-sm" id="clearProdDateBtn" title="Tampilkan semua tanggal">
                       <i className="fas fa-calendar-xmark"></i>Semua Tanggal
                     </button>
@@ -402,6 +425,17 @@ export default function InztamotoApp() {
                       <option value="Offline Store">Offline Store</option>
                     </select>
                   </div>
+                  {/* Phase 6.2 — period filters (options populated by populateSalePeriodFilters()) */}
+                  <div className="table-filter">
+                    <select id="saleMonthFilter">
+                      <option value="all">Semua Bulan</option>
+                    </select>
+                  </div>
+                  <div className="table-filter">
+                    <select id="saleYearFilter">
+                      <option value="all">Semua Tahun</option>
+                    </select>
+                  </div>
                 </div>
                 <div className="table-scroll">
                   <table className="data-table">
@@ -423,7 +457,7 @@ export default function InztamotoApp() {
 
             {/* Laporan */}
             <div className="page" id="pageLaporan">
-              <div style={{ display: 'flex', gap: '10px', marginBottom: '18px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <div className="report-toolbar" style={{ display: 'flex', gap: '10px', marginBottom: '18px', flexWrap: 'wrap', alignItems: 'center' }}>
                 <div className="table-filter">
                   <select id="reportType">
                     <option value="sales">Laporan Penjualan</option>
@@ -439,6 +473,17 @@ export default function InztamotoApp() {
                     <option value="weekly">Mingguan</option>
                     <option value="monthly" defaultValue="monthly">Bulanan</option>
                     <option value="yearly">Tahunan</option>
+                  </select>
+                </div>
+                {/* Phase 6.3 — period filters (options populated by populateReportPeriodFilters()) */}
+                <div className="table-filter">
+                  <select id="reportMonthFilter">
+                    <option value="all">Semua Bulan</option>
+                  </select>
+                </div>
+                <div className="table-filter">
+                  <select id="reportYearFilter">
+                    <option value="all">Semua Tahun</option>
                   </select>
                 </div>
                 <button className="btn btn-outline btn-sm" id="exportCsvBtn">
