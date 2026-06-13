@@ -96,14 +96,24 @@ input, select, textarea { font-family: inherit; outline: none }
   color: var(--text);
   animation: fadeUp .6s ease;
 }
-.auth-loading-card .fa-spinner {
-  color: var(--accent);
-  font-size: 22px;
+.auth-loading-card .auth-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(217, 119, 6, .22);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  display: inline-block;
+  animation: authSpin .9s linear infinite;
+  transform-origin: center;
 }
 .auth-loading-card p {
   font-size: 13px;
   color: var(--text-muted);
   font-weight: 600;
+}
+@keyframes authSpin {
+  from { transform: rotate(0deg) }
+  to { transform: rotate(360deg) }
 }
 
 #loginPage {
@@ -761,6 +771,7 @@ select.form-input {
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important }
+  #authLoading .auth-spinner { animation: authSpin .9s linear infinite !important }
 }
 
 /* ===== ADDITIONS: FEATURE SUPPORT ONLY ===== */

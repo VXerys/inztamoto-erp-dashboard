@@ -43,7 +43,7 @@ const SKU_MAP = {
   'Pannier Bag': 'INZ-PAN', 'Accessories': 'INZ-ACC'
 };
 
-const CHANNELS = ['Website', 'Shopee', 'Tokopedia', 'WhatsApp', 'Offline Store'];
+const CHANNELS = ['Website', 'Shopee', 'Tokopedia', 'Reseller', 'Offline Store'];
 
 const EXPEDITIONS = ['Shopee Express', 'J&T', 'JNE', 'SiCepat', 'Anteraja', 'Ninja', 'POS', 'Lainnya'];
 
@@ -341,9 +341,20 @@ function prodStatusBadge(s) {
 
 function channelBadge(ch) {
   if (!ch) return '<span class="badge badge-offline_store">-</span>';
-  const key = ch.toLowerCase().replace(/ /g, '_');
-  const m = { website: 'badge-website', shopee: 'badge-shopee', tokopedia: 'badge-tokopedia', whatsapp: 'badge-whatsapp', offline_store: 'badge-offline_store' };
-  return `<span class="badge ${m[key] || 'badge-offline_store'}">${ch}</span>`;
+  const displayChannel = normalizeChannelValue(ch);
+  const key = displayChannel.toLowerCase().replace(/ /g, '_');
+  const m = { website: 'badge-website', shopee: 'badge-shopee', tokopedia: 'badge-tokopedia', reseller: 'badge-whatsapp', offline_store: 'badge-offline_store' };
+  return `<span class="badge ${m[key] || 'badge-offline_store'}">${displayChannel}</span>`;
+}
+
+function normalizeChannelValue(channel) {
+  return channel === 'WhatsApp' ? 'Reseller' : channel;
+}
+
+function isChannelMatch(saleChannel, filterChannel) {
+  if (filterChannel === 'all') return true;
+  if (filterChannel === 'Reseller') return saleChannel === 'Reseller' || saleChannel === 'WhatsApp';
+  return saleChannel === filterChannel;
 }
 
 function expeditionBadge(exp) {
@@ -1010,7 +1021,10 @@ document.addEventListener('click', e => {
 function renderChannelChart() {
   if (state.charts.channel) state.charts.channel.destroy();
   const ch = {};
-  state.sales.forEach(s => { ch[s.channel] = (ch[s.channel] || 0) + (s.revenue || 0) });
+  state.sales.forEach(s => {
+    const channel = normalizeChannelValue(s.channel || '-');
+    ch[channel] = (ch[channel] || 0) + (s.revenue || 0);
+  });
   const colors = ['#7A1F1F', '#EE4D2D', '#2E7D32', '#128C7E', '#4B5563'];
   state.charts.channel = new Chart($('#chartChannel').getContext('2d'), {
     type: 'doughnut', data: { labels: Object.keys(ch), datasets: [{ data: Object.values(ch), backgroundColor: colors, borderWidth: 0, hoverOffset: 8 }] },
@@ -1461,11 +1475,24 @@ function productFormHTML(p = null) {
   const existingImg = (p && p.images && p.images.length > 0) ? p.images[0].imageUrl : '';
   const previewHTML = state.tempImageData ? `<img src="${state.tempImageData.imageUrl}" alt="Preview"><br><button type="button" class="btn btn-outline btn-sm" style="margin-top:8px" onclick="removeImage()"><i class="fas fa-trash"></i> Hapus Gambar</button>` : existingImg ? `<img src="${existingImg}" alt="Preview"><br><button type="button" class="btn btn-outline btn-sm" style="margin-top:8px" onclick="removeImage()"><i class="fas fa-trash"></i> Hapus Gambar</button>` : '';
 
+  // Detect if this is an imported product (has sourceProductId, importedFrom, or non-standard SKU prefix)
+  const isImported = p && !!(p.sourceProductId || p.importedFrom);
+  // Default regenerate: checked for imported, unchecked for native
+  const regenDefault = isImported ? 'checked' : '';
+
   return `
+    <input type="hidden" id="fOriginalCatId" value="${p ? (v.categoryId || '') : ''}">
     <div class="form-row"><div class="form-group full"><label>Nama Produk</label><input type="text" class="form-input" id="fName" value="${v.name || ''}" required></div></div>
     <div class="form-row">
       <div class="form-group"><label>Kategori</label><select class="form-input" id="fCat" onchange="onCategoryChange()">${catOpts}</select></div>
       <div class="form-group"><label>SKU (otomatis)</label><input type="text" class="form-input" id="fSku" value="${p ? p.sku : generateSKU(v.categoryId)}" readonly></div>
+    </div>
+    <div id="fRegenSkuRow" style="display:none;margin:-8px 0 12px 0;padding:10px 14px;background:var(--primary-light);border-radius:var(--radius-sm)">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+        <input type="checkbox" id="fRegenSku" ${regenDefault} onchange="onRegenSkuChange()">
+        Regenerate SKU sesuai kategori baru
+      </label>
+      <div id="fRegenSkuPreview" style="font-size:12px;color:var(--text-muted);margin-top:4px"></div>
     </div>
     <div class="form-group"><label>Deskripsi</label><textarea class="form-input" id="fDesc" rows="2">${v.description || ''}</textarea></div>
     <div class="form-row">
@@ -1492,7 +1519,49 @@ function productFormHTML(p = null) {
 
 window.onCategoryChange = function () {
   const catId = $('#fCat').value;
-  $('#fSku').value = generateSKU(catId);
+  const originalCatEl = document.getElementById('fOriginalCatId');
+
+  // New product form (no hidden original cat field) — always regenerate SKU
+  if (!originalCatEl || originalCatEl.value === '') {
+    $('#fSku').value = generateSKU(catId);
+    return;
+  }
+
+  // Edit product form — show/hide regenerate option when category differs
+  const originalCatId = originalCatEl.value;
+  const regenRow = document.getElementById('fRegenSkuRow');
+  const regenCheckbox = document.getElementById('fRegenSku');
+  const editingId = state._editingProductId || null;
+
+  if (catId !== originalCatId) {
+    // Category has changed — show the regenerate option
+    regenRow.style.display = '';
+    // Update SKU field and preview based on current checkbox state
+    onRegenSkuChange();
+  } else {
+    // Category restored to original — hide regenerate option, restore original SKU
+    regenRow.style.display = 'none';
+    const p = editingId ? state.products.find(x => x.id === editingId) : null;
+    if (p) $('#fSku').value = p.sku;
+  }
+};
+
+window.onRegenSkuChange = function () {
+  const catId = $('#fCat').value;
+  const regenCheckbox = document.getElementById('fRegenSku');
+  const editingId = state._editingProductId || null;
+  const p = editingId ? state.products.find(x => x.id === editingId) : null;
+  const preview = document.getElementById('fRegenSkuPreview');
+
+  if (regenCheckbox && regenCheckbox.checked) {
+    const newSku = generateSKU(catId, editingId || undefined);
+    $('#fSku').value = newSku;
+    if (preview) preview.textContent = 'SKU baru: ' + newSku;
+  } else {
+    // Keep old SKU
+    if (p) $('#fSku').value = p.sku;
+    if (preview) preview.textContent = 'SKU lama dipertahankan: ' + (p ? p.sku : '');
+  }
 };
 window.calcFormProfit = function () {
   const cp = parsePrice($('#fCost').value), sp = parsePrice($('#fSell').value);
@@ -1502,6 +1571,7 @@ window.calcFormProfit = function () {
 
  $('#addProdBtn').addEventListener('click', () => {
   state.tempImageData = null;
+  state._editingProductId = null;
   openModal('Tambah Produk Baru', productFormHTML(), `<button class="btn btn-outline btn-sm" onclick="closeModal()">Batal</button><button class="btn btn-primary btn-sm" onclick="saveNewProduct()"><i class="fas fa-check"></i>Simpan</button>`);
 });
 
@@ -1567,6 +1637,7 @@ window.editProduct = function (id) {
   const p = state.products.find(x => x.id === id);
   if (!p) { toast('Produk tidak ditemukan', 'error'); return; }
   state.tempImageData = null;
+  state._editingProductId = id;
   openModal('Edit Produk', productFormHTML(p), `<button class="btn btn-outline btn-sm" onclick="closeModal()">Batal</button><button class="btn btn-primary btn-sm" onclick="saveEditProduct('${id}')"><i class="fas fa-check"></i>Update</button>`);
 };
 
@@ -1582,11 +1653,34 @@ window.saveEditProduct = async function (id) {
   const p = state.products.find(x => x.id === id);
   const images = state.tempImageData ? [state.tempImageData] : (p && p.images ? p.images : []);
 
+  const newCatId = getFormVal('fCat', p ? p.categoryId : '');
+  const originalCatId = getFormVal('fOriginalCatId', p ? p.categoryId : '');
+  const categoryChanged = newCatId !== originalCatId;
+  const regenCheckbox = document.getElementById('fRegenSku');
+  const shouldRegen = categoryChanged && regenCheckbox && regenCheckbox.checked;
+
+  // Determine final SKU
+  let finalSku = p ? p.sku : getFormVal('fSku', '');
+  if (shouldRegen) {
+    // Use the SKU already previewed in the form field (generated by onRegenSkuChange)
+    const formSku = getFormVal('fSku', '');
+    if (formSku && isSkuUnique(formSku, id)) {
+      finalSku = formSku;
+    } else {
+      // Fallback: regenerate fresh
+      finalSku = generateSKU(newCatId, id);
+      if (!isSkuUnique(finalSku, id)) {
+        toast('Gagal membuat SKU unik untuk kategori ini. SKU lama dipertahankan.', 'warning');
+        finalSku = p ? p.sku : getFormVal('fSku', '');
+      }
+    }
+  }
+
   const productData = sanitize({
     name: name,
-    sku: p ? p.sku : getFormVal('fSku', ''),  // always preserve existing SKU, never regenerate
+    sku: finalSku,
     slug: name.toLowerCase().replace(/\s+/g, '-'),
-    categoryId: getFormVal('fCat', p ? p.categoryId : ''),
+    categoryId: newCatId,
     description: getFormVal('fDesc', ''),
     costPrice: cp,
     sellingPrice: sp,
@@ -1602,7 +1696,14 @@ window.saveEditProduct = async function (id) {
   try {
     await db.collection('products').doc(id).update(productData);
     state.tempImageData = null;
-    toast('Produk berhasil diupdate', 'success');
+    state._editingProductId = null;
+    if (categoryChanged) {
+      toast(shouldRegen
+        ? 'Produk diupdate — kategori dan SKU diperbarui'
+        : 'Produk diupdate — kategori diperbarui, SKU lama dipertahankan', 'success');
+    } else {
+      toast('Produk berhasil diupdate', 'success');
+    }
     closeModal();
   } catch (err) {
     console.error('Save edit product error:', err);
@@ -2239,13 +2340,13 @@ function renderSales() {
       (s.txNumber   || '').toLowerCase().includes(q) ||
       (s.productName|| '').toLowerCase().includes(q) ||
       (s.customer   || '').toLowerCase().includes(q) ||
-      (s.channel    || '').toLowerCase().includes(q) ||
+      (normalizeChannelValue(s.channel) || '').toLowerCase().includes(q) ||
       (s.city       || '').toLowerCase().includes(q) ||
       (s.district   || '').toLowerCase().includes(q) ||
       (s.expedition || '').toLowerCase().includes(q)
     );
   }
-  if (state.sale.channel !== 'all') list = list.filter(s => s.channel === state.sale.channel);
+  if (state.sale.channel !== 'all') list = list.filter(s => isChannelMatch(s.channel, state.sale.channel));
   // Phase 6.2 — month/year filter
   if (state.sale.month !== 'all' || state.sale.year !== 'all')
     list = list.filter(s => matchesMonthYear(s.date, state.sale.month, state.sale.year));
@@ -3072,7 +3173,7 @@ function renderReports() {
   const totalNetProfit  = totalProfit - totalProdExp - totalPayrollExp;
   const marginPct = totalRev > 0 ? Math.round(totalProfit / totalRev * 100) : 0;
 
-  const getTopChannel  = () => { const ch = {}; rSales.forEach(s => { ch[s.channel] = (ch[s.channel] || 0) + 1 }); const e = Object.entries(ch).sort((a, b) => b[1] - a[1]); return e.length ? e[0][0] : '-' };
+  const getTopChannel  = () => { const ch = {}; rSales.forEach(s => { const channel = normalizeChannelValue(s.channel || '-'); ch[channel] = (ch[channel] || 0) + 1 }); const e = Object.entries(ch).sort((a, b) => b[1] - a[1]); return e.length ? e[0][0] : '-' };
   const getBestSeller  = () => { const ps = {}; rSales.forEach(s => { ps[s.productId] = (ps[s.productId] || 0) + getSaleRevenue(s) }); const e = Object.entries(ps).sort((a, b) => b[1] - a[1]); return e.length ? (state.products.find(p => p.id === e[0][0]) || {}).name || '-' : '-' };
   const getTopCategory = () => { const cs = {}; rSales.forEach(s => { const p = state.products.find(x => x.id === s.productId); if (p) { const cn = getCatName(p.categoryId); cs[cn] = (cs[cn] || 0) + getSaleRevenue(s) } }); const e = Object.entries(cs).sort((a, b) => b[1] - a[1]); return e.length ? e[0][0] : '-' };
 
@@ -3210,7 +3311,7 @@ function renderReportDetail(type, rSales) {
   let csv = '\uFEFF';
   if (type === 'sales') {
     csv += 'No Transaksi,Tanggal,Produk,SKU,Qty,Channel,Pendapatan,Keuntungan\n';
-    rSales.forEach(s => { csv += `"${s.txNumber}","${s.date}","${s.productName}","${s.sku}",${s.quantity},"${s.channel}",${getSaleRevenue(s)},${getSaleProfit(s)}\n` });
+    rSales.forEach(s => { csv += `"${s.txNumber}","${s.date}","${s.productName}","${s.sku}",${s.quantity},"${normalizeChannelValue(s.channel)}",${getSaleRevenue(s)},${getSaleProfit(s)}\n` });
   } else if (type === 'profit') {
     csv += 'Produk,Pendapatan,Biaya,Laba,Margin\n';
     const ps = {}; rSales.forEach(s => { if (!ps[s.productId]) ps[s.productId] = { name: s.productName, rev: 0, cost: 0, profit: 0 }; ps[s.productId].rev += getSaleRevenue(s); ps[s.productId].cost += (s.costPrice || 0) * (s.quantity || 0); ps[s.productId].profit += getSaleProfit(s) });

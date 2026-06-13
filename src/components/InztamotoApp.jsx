@@ -22,7 +22,7 @@ export default function InztamotoApp() {
             />
             <span className="logo-text">INZ</span>
           </div>
-          <i className="fas fa-spinner fa-spin"></i>
+          <span className="auth-spinner" aria-hidden="true"></span>
           <p>Memeriksa sesi...</p>
         </div>
       </div>
@@ -443,7 +443,7 @@ export default function InztamotoApp() {
                       <option value="Website">Website</option>
                       <option value="Shopee">Shopee</option>
                       <option value="Tokopedia">Tokopedia</option>
-                      <option value="WhatsApp">WhatsApp</option>
+                      <option value="Reseller">Reseller</option>
                       <option value="Offline Store">Offline Store</option>
                     </select>
                   </div>
