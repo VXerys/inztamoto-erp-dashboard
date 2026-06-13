@@ -32,6 +32,7 @@ const db = firebase.firestore();
    FLAG MENCEGAH DOBLE INIT
    ========================================================= */
 let appInitialized = false;
+let logoutToastPending = false;
 
 /* =========================================================
    KONSTANTA
@@ -359,6 +360,33 @@ function expeditionBadge(exp) {
 /* =========================================================
    AUTH
    ========================================================= */
+function resetLoginButton() {
+  if ($('#loginBtn')) {
+    $('#loginBtn').innerHTML = '<span>Masuk ke Sistem</span><i class="fas fa-arrow-right"></i>';
+    $('#loginBtn').disabled = false;
+  }
+}
+
+function showAuthLoading() {
+  if ($('#authLoading')) $('#authLoading').style.display = 'flex';
+  if ($('#loginPage')) $('#loginPage').style.display = 'none';
+  if ($('#appShell')) $('#appShell').style.display = 'none';
+}
+
+function showLoginScreen() {
+  if ($('#authLoading')) $('#authLoading').style.display = 'none';
+  if ($('#appShell')) $('#appShell').style.display = 'none';
+  if ($('#loginPage')) $('#loginPage').style.display = 'flex';
+  resetLoginButton();
+}
+
+function cleanupAppSession() {
+  state.listeners.forEach(unsub => { try { unsub(); } catch(e) {} });
+  state.listeners = [];
+  appInitialized = false;
+  state.user = null;
+}
+
  $('#loginForm').addEventListener('submit', async e => {
   e.preventDefault();
   const email = $('#loginEmail').value.trim();
@@ -368,44 +396,26 @@ function expeditionBadge(exp) {
   btn.disabled = true;
 
   try {
-    if (email === 'admin@inztamoto.com' && pass === 'admin123') {
-      state.user = { name: 'Rizky InztaMoto', email, role: 'Owner' };
-      enterApp();
-    } else {
-      await auth.signInWithEmailAndPassword(email, pass);
-    }
+    await auth.signInWithEmailAndPassword(email, pass);
   } catch (err) {
     toast(err.message || 'Login gagal', 'error');
-    btn.innerHTML = '<span>Masuk ke Sistem</span><i class="fas fa-arrow-right"></i>';
-    btn.disabled = false;
+    resetLoginButton();
   }
 });
 
- $('#logoutBtn').addEventListener('click', () => {
-  state.listeners.forEach(unsub => { try { unsub(); } catch(e) {} });
-  state.listeners = [];
-  appInitialized = false;
+ $('#logoutBtn').addEventListener('click', async () => {
+  cleanupAppSession();
+  logoutToastPending = true;
+  showAuthLoading();
 
-  if (auth.currentUser) {
-    auth.signOut().then(() => {
-      state.user = null;
-      $('#appShell').style.display = 'none';
-      $('#loginPage').style.display = 'flex';
-      toast('Berhasil keluar', 'success');
-    }).catch(() => {
-      state.user = null;
-      $('#appShell').style.display = 'none';
-      $('#loginPage').style.display = 'flex';
-    });
-  } else {
-    state.user = null;
-    $('#appShell').style.display = 'none';
-    $('#loginPage').style.display = 'flex';
-    toast('Berhasil keluar', 'success');
+  try {
+    await auth.signOut();
+  } catch (err) {
+    logoutToastPending = false;
+    console.error('logout error:', err);
+    toast(err.message || 'Gagal keluar', 'error');
+    showLoginScreen();
   }
-
-  $('#loginBtn').innerHTML = '<span>Masuk ke Sistem</span><i class="fas fa-arrow-right"></i>';
-  $('#loginBtn').disabled = false;
 });
 
 function enterApp() {
@@ -413,7 +423,9 @@ function enterApp() {
   appInitialized = true;
 
   $('#loginPage').style.display = 'none';
+  if ($('#authLoading')) $('#authLoading').style.display = 'none';
   $('#appShell').style.display = 'block';
+  resetLoginButton();
   updateUserDisplay(state.user);
   initFirebaseListeners();
   navigateTo('dashboard');
@@ -3648,29 +3660,35 @@ async function loadUserProfile(firebaseUser) {
   return fallback;
 }
 
-(function initApp() {
-  if (auth.currentUser) {
-    loadUserProfile(auth.currentUser).then(profile => {
-      state.user = profile;
-      enterApp();
-    });
-    return;
-  }
-})();
+showAuthLoading();
 
-auth.onAuthStateChanged(user => {
+auth.onAuthStateChanged(async user => {
   if (!user) {
     if (appInitialized) {
-      state.listeners.forEach(unsub => { try { unsub(); } catch(e) {} });
-      state.listeners = [];
-      appInitialized = false;
+      cleanupAppSession();
+    }
+    showLoginScreen();
+    if (logoutToastPending) {
+      toast('Berhasil keluar', 'success');
+      logoutToastPending = false;
     }
     return;
   }
 
   // enterApp() sudah punya guard if (appInitialized) return — aman dipanggil ulang
-  loadUserProfile(user).then(profile => {
+  if (!appInitialized) showAuthLoading();
+  try {
+    const profile = await loadUserProfile(user);
     state.user = profile;
-    enterApp();
-  });
+    if (appInitialized) {
+      updateUserDisplay(state.user);
+    } else {
+      enterApp();
+    }
+  } catch (err) {
+    console.error('auth state profile error:', err);
+    cleanupAppSession();
+    showLoginScreen();
+    toast(err.message || 'Gagal memuat profil user', 'error');
+  }
 });

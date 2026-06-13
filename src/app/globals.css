@@ -74,6 +74,38 @@ input, select, textarea { font-family: inherit; outline: none }
 .logo-wrap.lg .logo-text { font-size: 20px }
 
 /* ===== LOGIN ===== */
+#authLoading {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #FFF9E6 0%, #FEF3C7 35%, #FDE68A 100%);
+}
+.auth-loading-card {
+  width: 100%;
+  max-width: 260px;
+  padding: 32px 24px;
+  background: rgba(255, 253, 247, .88);
+  border: 1px solid rgba(255, 253, 247, .75);
+  border-radius: 18px;
+  box-shadow: 0 4px 24px rgba(0,0,0,.08);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  color: var(--text);
+  animation: fadeUp .6s ease;
+}
+.auth-loading-card .fa-spinner {
+  color: var(--accent);
+  font-size: 22px;
+}
+.auth-loading-card p {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
 #loginPage {
   min-height: 100vh; display: flex; align-items: center; justify-content: center;
   position: relative; overflow: hidden;
