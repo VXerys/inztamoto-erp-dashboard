@@ -19,3 +19,7 @@ backup-original/
 .DS_Store
 *.log
 
+private/
+.env.migration
+.env.migration.example
+*.service-account.json
