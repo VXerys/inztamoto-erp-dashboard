@@ -776,6 +776,11 @@ select.form-input {
 
 /* ===== ADDITIONS: FEATURE SUPPORT ONLY ===== */
 
+.pwa-install-btn {
+  margin-top: 12px;
+  justify-content: center;
+}
+
 @media (max-width: 1024px) {
   #pageProduksi #prodStats,
   #pageBelanjaProduksi .stat-grid,

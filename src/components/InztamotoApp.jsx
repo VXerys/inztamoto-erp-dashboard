@@ -1,8 +1,56 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import LegacyScripts from './LegacyScripts';
 
 export default function InztamotoApp() {
+  const [deferredInstallPrompt, setDeferredInstallPrompt] = useState(null);
+  const [canInstall, setCanInstall] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
+      navigator.serviceWorker.register('/sw.js').catch((error) => {
+        console.error('[INZTAMOTO PWA] Service worker registration failed:', error);
+      });
+    }
+
+    const isStandalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      window.navigator.standalone === true;
+
+    if (isStandalone) return;
+
+    const handleBeforeInstallPrompt = (event) => {
+      event.preventDefault();
+      setDeferredInstallPrompt(event);
+      setCanInstall(true);
+    };
+
+    const handleAppInstalled = () => {
+      setDeferredInstallPrompt(null);
+      setCanInstall(false);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredInstallPrompt) return;
+
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    setDeferredInstallPrompt(null);
+    setCanInstall(false);
+  };
+
   return (
     <>
       {/* ==================== AUTH LOADING ==================== */}
@@ -64,6 +112,11 @@ export default function InztamotoApp() {
               <span>Masuk ke Sistem</span> <i className="fas fa-arrow-right"></i>
             </button>
           </form>
+          {canInstall && (
+            <button type="button" className="btn btn-outline btn-full pwa-install-btn" onClick={handleInstallClick}>
+              <i className="fas fa-download"></i>Install App
+            </button>
+          )}
         </div>
       </div>
 

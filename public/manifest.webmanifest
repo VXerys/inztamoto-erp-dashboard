@@ -1,0 +1,22 @@
+{
+  "name": "INZTAMOTO",
+  "short_name": "INZTAMOTO",
+  "description": "Sistem Manajemen Produksi dan Penjualan INZTAMOTO",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FFF4BF",
+  "theme_color": "#D97706",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
