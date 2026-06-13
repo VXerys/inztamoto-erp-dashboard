@@ -446,6 +446,11 @@ select.form-input {
 .chart-tab { padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--text-muted); transition: var(--transition) }
 .chart-tab.active { background: #1A1A1A; color: #FCD34D; box-shadow: var(--shadow) }
 .chart-tab:hover:not(.active) { color: var(--text) }
+/* Phase 6.4 — Tren Penjualan filter row */
+.chart-header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap }
+.chart-trend-filters { display: flex; align-items: center; gap: 6px; flex-wrap: wrap }
+.chart-trend-filters .form-input { min-width: 90px; max-width: 140px }
+
 
 /* ===== TABLES ===== */
 .table-toolbar {
@@ -724,4 +729,179 @@ select.form-input {
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important }
+}
+
+/* ===== ADDITIONS: FEATURE SUPPORT ONLY ===== */
+
+@media (max-width: 1024px) {
+  #pageProduksi #prodStats,
+  #pageBelanjaProduksi .stat-grid,
+  #pageLaporan .stat-grid,
+  #pageLaporan #reportStats {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  #pageProduksi .grid-2,
+  #pageBelanjaProduksi .grid-2,
+  #pageLaporan .grid-2,
+  #pageLaporan .grid-3 {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .content {
+    padding: 14px;
+    overflow-x: hidden;
+  }
+
+  .card {
+    max-width: 100%;
+  }
+
+  #pageProduksi #prodStats,
+  #pageBelanjaProduksi .stat-grid,
+  #pageLaporan .stat-grid,
+  #pageLaporan #reportStats,
+  #pageLaporan .grid-2,
+  #pageLaporan .grid-3 {
+    grid-template-columns: 1fr !important;
+  }
+
+  .table-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .table-search,
+  .table-filter {
+    width: 100%;
+    max-width: none;
+  }
+
+  .table-search input,
+  .table-filter select,
+  .table-filter input,
+  .table-toolbar .form-input {
+    width: 100%;
+    max-width: none;
+  }
+
+  .responsive-action-group,
+  .table-toolbar > div[style*="margin-left"] {
+    margin-left: 0 !important;
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .table-toolbar .btn {
+    min-height: 40px;
+    justify-content: center;
+    white-space: nowrap;
+  }
+
+  .responsive-action-group .btn,
+  .table-toolbar > div[style*="margin-left"] .btn {
+    flex: 1 1 140px;
+  }
+  
+  .responsive-action-group span {
+    width: 100%;
+    text-align: left;
+    margin-bottom: 4px;
+  }
+
+  .table-scroll {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .data-table {
+    min-width: 760px;
+  }
+
+  #pageProduksi .data-table,
+  #pageBelanjaProduksi .data-table,
+  #pageLaporan .data-table {
+    min-width: 820px;
+  }
+
+  .table-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .pagination {
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .pagination button {
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  .chart-wrap {
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .card-header {
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .card-header h3 {
+    min-width: 0;
+  }
+
+  /* Laporan toolbar mobile styling */
+  .report-toolbar {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 10px;
+  }
+
+  .report-toolbar .table-filter,
+  .report-toolbar select,
+  .report-toolbar button {
+    width: 100% !important;
+    max-width: none !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .content {
+    padding: 12px;
+  }
+
+  .stat-card {
+    min-width: 0;
+  }
+
+  .sc-value {
+    font-size: clamp(18px, 6vw, 26px);
+    word-break: break-word;
+  }
+
+  .sc-label,
+  .sc-sub {
+    line-height: 1.4;
+  }
+
+  .table-toolbar .btn,
+  .report-toolbar button {
+    width: 100%;
+    flex: 1 1 100%;
+  }
+
+  .data-table {
+    min-width: 720px;
+  }
 }
