@@ -5,8 +5,30 @@ import LegacyScripts from './LegacyScripts';
 export default function InztamotoApp() {
   return (
     <>
+      {/* ==================== AUTH LOADING ==================== */}
+      <div id="authLoading">
+        <div className="auth-loading-card">
+          <div className="logo-wrap login-logo-icon">
+            <img
+              src="/logo.png"
+              alt="InztaMoto"
+              className="logo-img"
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+                if (e.currentTarget.nextElementSibling) {
+                  e.currentTarget.nextElementSibling.style.display = 'flex';
+                }
+              }}
+            />
+            <span className="logo-text">INZ</span>
+          </div>
+          <i className="fas fa-spinner fa-spin"></i>
+          <p>Memeriksa sesi...</p>
+        </div>
+      </div>
+
       {/* ==================== LOGIN ==================== */}
-      <div id="loginPage">
+      <div id="loginPage" style={{ display: 'none' }}>
         <div className="login-blob b1"></div>
         <div className="login-blob b2"></div>
         <div className="login-blob b3"></div>
