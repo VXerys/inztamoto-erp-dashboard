@@ -216,6 +216,15 @@ export default function InztamotoApp() {
                      <i className="fas fa-money-check-dollar"></i>Salary
                      Produksi
                   </a>
+                  <a
+                     href="#"
+                     className="nav-item"
+                     data-page="sponsorship"
+                     id="menuSponsorship"
+                  >
+                     <i className="fas fa-handshake-angle"></i>Support
+                     Sponsorship
+                  </a>
                   <a href="#" className="nav-item" data-page="inventaris">
                      <i className="fas fa-boxes-stacked"></i>Stock Control
                      <span
@@ -677,6 +686,11 @@ export default function InztamotoApp() {
                   {/* Salary Produksi */}
                   <div className="page" id="pageSalaryProduksi">
                      {/* Rendered dynamically by renderSalaryProduksi() in app-runtime.js */}
+                  </div>
+
+                  {/* Support Sponsorship */}
+                  <div className="page" id="pageSponsorship">
+                     {/* Rendered dynamically by renderSponsorship() in app-runtime.js */}
                   </div>
 
                   {/* Inventaris */}

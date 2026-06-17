@@ -150,6 +150,7 @@ const state = {
    productionPurchases: [],
    payrolls: [],
    salaryProduksi: [],
+   sponsorships: [],
    users: [],
    currentPage: "dashboard",
    prod: {
@@ -177,6 +178,8 @@ const state = {
    },
    pp: { search: "", week: "", status: "all", page: 1, perPage: 10 },
    payroll: { search: "", period: "", status: "all", page: 1, perPage: 10 },
+   salaryProd: { page: 1, perPage: 8 },
+   spons: { page: 1, perPage: 8 },
    stockHistory: { search: "", filter: "bulan_ini", page: 1, perPage: 15 },
    report: { month: "all", year: String(new Date().getFullYear()) },
    charts: {},
@@ -230,6 +233,26 @@ function parsePrice(val) {
    if (val === null || val === undefined) return 0;
    return parseInt(String(val).replace(/[^0-9]/g, ""), 10) || 0;
 }
+
+/* Format angka ke format Rupiah saat diketik (1200000 → 1.200.000).
+   Digunakan pada input type="text" dengan oninput="formatRpInput(this)".
+   parsePrice() sudah bisa membaca nilai berformat ini saat save. */
+window.formatRpInput = function (el) {
+   var digits = el.value.replace(/[^0-9]/g, "");
+   if (!digits) {
+      el.value = "";
+      return;
+   }
+   // Simpan posisi kursor agar tidak loncat ke akhir
+   var cursorFromEnd = el.value.length - (el.selectionEnd || el.value.length);
+   var formatted = parseInt(digits, 10).toLocaleString("id-ID");
+   el.value = formatted;
+   // Kembalikan posisi kursor
+   var newPos = formatted.length - cursorFromEnd;
+   try {
+      el.setSelectionRange(newPos, newPos);
+   } catch (e) {}
+};
 
 /* Hapus semua undefined/null secara rekursif — aman untuk Firestore */
 function sanitize(obj) {
@@ -625,6 +648,9 @@ function updateNavigationAccess() {
    const salaryProdMenu = $("#menuSalaryProduksi");
    if (salaryProdMenu)
       salaryProdMenu.style.display = isOwnerOrAdmin ? "" : "none";
+   const sponsorshipMenu = $("#menuSponsorship");
+   if (sponsorshipMenu)
+      sponsorshipMenu.style.display = isOwnerOrAdmin ? "" : "none";
 }
 
 /* =========================================================
@@ -755,6 +781,23 @@ function initFirebaseListeners() {
       );
    state.listeners.push(unsubSalaryProd);
 
+   // ---- Support Sponsorship ----
+   const unsubSponsorship = db
+      .collection("sponsorships")
+      .orderBy("eventDate", "desc")
+      .onSnapshot(
+         function (snap) {
+            state.sponsorships = snap.docs.map(function (d) {
+               return Object.assign({ id: d.id }, d.data());
+            });
+            if (state.currentPage === "sponsorship") renderSponsorship();
+         },
+         function (err) {
+            console.error("Sponsorship listener error:", err);
+         },
+      );
+   state.listeners.push(unsubSponsorship);
+
    const unsubUsers = db.collection("users").onSnapshot(
       (snap) => {
          state.users = snap.docs.map((d) => {
@@ -806,6 +849,9 @@ function renderCurrentPage() {
          break;
       case "salaryProduksi":
          renderSalaryProduksi();
+         break;
+      case "sponsorship":
+         renderSponsorship();
          break;
    }
 }
@@ -887,6 +933,7 @@ const TITLES = {
    belanjaProduksi: "Belanja Produksi",
    gajiKaryawan: "Gaji Karyawan",
    salaryProduksi: "Salary Produksi",
+   sponsorship: "Support Sponsorship",
 };
 
 function navigateTo(page) {
@@ -901,6 +948,15 @@ function navigateTo(page) {
       _roleForSP !== "admin"
    ) {
       toast("Akses Salary Produksi hanya untuk Owner atau Admin", "error");
+      page = "dashboard";
+   }
+   const _roleForSpons = getCurrentUserRole();
+   if (
+      page === "sponsorship" &&
+      _roleForSpons !== "owner" &&
+      _roleForSpons !== "admin"
+   ) {
+      toast("Akses Support Sponsorship hanya untuk Owner atau Admin", "error");
       page = "dashboard";
    }
    updateNavigationAccess();
@@ -5001,9 +5057,14 @@ function renderSalaryProduksi() {
    }
 
    var list = state.salaryProduksi || [];
+   var spPerPage = state.salaryProd.perPage;
+   var spTotal = Math.max(1, Math.ceil(list.length / spPerPage));
+   if (state.salaryProd.page > spTotal) state.salaryProd.page = 1;
+   var spStart = (state.salaryProd.page - 1) * spPerPage;
+   var items = list.slice(spStart, spStart + spPerPage);
 
    var accordionItems = list.length
-      ? list
+      ? items
            .map(function (doc) {
               var itemRows = (doc.items || [])
                  .map(function (item) {
@@ -5092,6 +5153,29 @@ function renderSalaryProduksi() {
            .join("")
       : '<div class="empty-state"><i class="fas fa-money-check-dollar"></i><h4>Belum ada data salary produksi</h4><p>Klik "+ Tambah Data" untuk menambahkan</p></div>';
 
+   var spPag =
+      "<button " +
+      (state.salaryProd.page <= 1 ? "disabled" : "") +
+      ' onclick="goSalaryProduksiPage(' +
+      (state.salaryProd.page - 1) +
+      ')"><i class="fas fa-chevron-left"></i></button>';
+   for (var spI = 1; spI <= Math.min(spTotal, 10); spI++) {
+      spPag +=
+         '<button class="' +
+         (spI === state.salaryProd.page ? "active" : "") +
+         '" onclick="goSalaryProduksiPage(' +
+         spI +
+         ')">' +
+         spI +
+         "</button>";
+   }
+   spPag +=
+      "<button " +
+      (state.salaryProd.page >= spTotal ? "disabled" : "") +
+      ' onclick="goSalaryProduksiPage(' +
+      (state.salaryProd.page + 1) +
+      ')"><i class="fas fa-chevron-right"></i></button>';
+
    container.innerHTML =
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">' +
       "<div>" +
@@ -5106,8 +5190,29 @@ function renderSalaryProduksi() {
       "</div>" +
       '<div class="cat-accordion" id="salaryProduksiList">' +
       accordionItems +
+      "</div>" +
+      '<div class="table-footer">' +
+      "<span>" +
+      (list.length > 0
+         ? "Menampilkan " +
+           (spStart + 1) +
+           "\u2013" +
+           Math.min(spStart + spPerPage, list.length) +
+           " dari " +
+           list.length +
+           " data"
+         : "") +
+      "</span>" +
+      '<div class="pagination">' +
+      spPag +
+      "</div>" +
       "</div>";
 }
+
+window.goSalaryProduksiPage = function (n) {
+   state.salaryProd.page = n;
+   renderSalaryProduksi();
+};
 
 // ---- Toggle accordion item ----
 window.toggleSalaryProduksiAccordion = function (id) {
@@ -5382,6 +5487,351 @@ window.doDeleteSalaryProduksi = async function (docId) {
    try {
       await db.collection("production_salaries").doc(docId).delete();
       toast("Data salary produksi dihapus", "success");
+      closeModal();
+   } catch (err) {
+      toast("Gagal menghapus: " + err.message, "error");
+   }
+};
+
+/* =========================================================
+   SUPPORT SPONSORSHIP (Dukungan Event / Promosi)
+   Collection: sponsorships
+   Struktur dokumen: { eventName, eventDate, location, supportDetails, estimatedCost, createdAt, updatedAt }
+   Hanya pencatatan — TIDAK ada logika potong stok.
+   ========================================================= */
+
+// ---- Render halaman (Accordion) ----
+function renderSponsorship() {
+   var container = $("#pageSponsorship");
+   if (!container) return;
+
+   var _role = getCurrentUserRole();
+   if (_role !== "owner" && _role !== "admin") {
+      container.innerHTML =
+         '<div class="empty-state"><i class="fas fa-lock"></i><h4>Akses ditolak</h4><p>Halaman ini hanya untuk Owner atau Admin</p></div>';
+      return;
+   }
+
+   var list = state.sponsorships || [];
+   var sPerPage = state.spons.perPage;
+   var sTotal = Math.max(1, Math.ceil(list.length / sPerPage));
+   if (state.spons.page > sTotal) state.spons.page = 1;
+   var sStart = (state.spons.page - 1) * sPerPage;
+   var sItems = list.slice(sStart, sStart + sPerPage);
+
+   var accordionItems = list.length
+      ? sItems
+           .map(function (doc) {
+              var dateFormatted = doc.eventDate
+                 ? new Date(doc.eventDate).toLocaleDateString("id-ID", {
+                      day: "numeric",
+                      month: "long",
+                      year: "numeric",
+                   })
+                 : "-";
+
+              var locationBadge = doc.location
+                 ? ' &nbsp;<span style="font-size:12px;color:var(--text-muted)">' +
+                   '<i class="fas fa-location-dot"></i> ' +
+                   doc.location +
+                   "</span>"
+                 : "";
+
+              return (
+                 '<div class="cat-accordion-item" id="spons-' +
+                 doc.id +
+                 '">' +
+                 '<div class="cat-accordion-header" onclick="toggleSponsorshipAccordion(\'' +
+                 doc.id +
+                 "')\">" +
+                 '<div class="cat-acc-icon"><i class="fas fa-handshake-angle"></i></div>' +
+                 '<div class="cat-acc-info">' +
+                 "<h4>" +
+                 (doc.eventName || "-") +
+                 "</h4>" +
+                 '<p><span class="badge badge-in_progress">' +
+                 (doc.eventDate || "-") +
+                 "</span>" +
+                 locationBadge +
+                 "</p>" +
+                 "</div>" +
+                 '<div style="margin-left:auto;font-weight:700;font-size:15px;color:var(--primary);padding-right:12px;white-space:nowrap">' +
+                 fmtRp(doc.estimatedCost || 0) +
+                 "</div>" +
+                 '<div class="cat-acc-actions" onclick="event.stopPropagation()">' +
+                 '<button class="action-btn" title="Edit" onclick="openSponsorshipModal(\'' +
+                 doc.id +
+                 '\')"><i class="fas fa-pen"></i></button>' +
+                 '<button class="action-btn del" title="Hapus" onclick="deleteSponsorship(\'' +
+                 doc.id +
+                 '\')"><i class="fas fa-trash"></i></button>' +
+                 "</div>" +
+                 '<i class="fas fa-chevron-down cat-chevron"></i>' +
+                 "</div>" +
+                 '<div class="cat-accordion-body" id="spons-body-' +
+                 doc.id +
+                 '" style="display:none">' +
+                 '<div class="cat-acc-inner">' +
+                 '<div style="display:flex;flex-direction:column;gap:14px;padding:4px 0">' +
+                 "<div>" +
+                 '<p style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Rincian Support</p>' +
+                 '<p style="font-size:13px;line-height:1.7;white-space:pre-wrap">' +
+                 (doc.supportDetails || "-") +
+                 "</p>" +
+                 "</div>" +
+                 '<div style="display:flex;gap:20px;flex-wrap:wrap;padding:10px 14px;background:var(--primary-light);border-radius:var(--radius-sm);font-size:13px">' +
+                 '<span><i class="fas fa-location-dot" style="color:var(--primary);margin-right:6px"></i><strong>Lokasi:</strong> ' +
+                 (doc.location || "-") +
+                 "</span>" +
+                 '<span><i class="fas fa-calendar" style="color:var(--primary);margin-right:6px"></i><strong>Tanggal:</strong> ' +
+                 dateFormatted +
+                 "</span>" +
+                 '<span><i class="fas fa-coins" style="color:var(--primary);margin-right:6px"></i><strong>Perkiraan Biaya:</strong> ' +
+                 fmtRp(doc.estimatedCost || 0) +
+                 "</span>" +
+                 "</div>" +
+                 "</div>" +
+                 "</div>" +
+                 "</div>" +
+                 "</div>"
+              );
+           })
+           .join("")
+      : '<div class="empty-state"><i class="fas fa-handshake-angle"></i><h4>Belum ada data sponsorship</h4><p>Klik "+ Tambah Data" untuk menambahkan</p></div>';
+
+   var sPag =
+      "<button " +
+      (state.spons.page <= 1 ? "disabled" : "") +
+      ' onclick="goSponsorshipPage(' +
+      (state.spons.page - 1) +
+      ')"><i class="fas fa-chevron-left"></i></button>';
+   for (var sI = 1; sI <= Math.min(sTotal, 10); sI++) {
+      sPag +=
+         '<button class="' +
+         (sI === state.spons.page ? "active" : "") +
+         '" onclick="goSponsorshipPage(' +
+         sI +
+         ')">' +
+         sI +
+         "</button>";
+   }
+   sPag +=
+      "<button " +
+      (state.spons.page >= sTotal ? "disabled" : "") +
+      ' onclick="goSponsorshipPage(' +
+      (state.spons.page + 1) +
+      ')"><i class="fas fa-chevron-right"></i></button>';
+
+   container.innerHTML =
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">' +
+      "<div>" +
+      '<h3 style="font-size:16px;font-weight:700">Riwayat Support & Sponsorship</h3>' +
+      '<p style="font-size:13px;color:var(--text-muted);margin-top:4px">' +
+      list.length +
+      " event tersimpan</p>" +
+      "</div>" +
+      '<button class="btn btn-primary btn-sm" onclick="openSponsorshipModal()">' +
+      '<i class="fas fa-plus"></i>Tambah Data' +
+      "</button>" +
+      "</div>" +
+      '<div class="cat-accordion" id="sponsorshipList">' +
+      accordionItems +
+      "</div>" +
+      '<div class="table-footer">' +
+      "<span>" +
+      (list.length > 0
+         ? "Menampilkan " +
+           (sStart + 1) +
+           "\u2013" +
+           Math.min(sStart + sPerPage, list.length) +
+           " dari " +
+           list.length +
+           " event"
+         : "") +
+      "</span>" +
+      '<div class="pagination">' +
+      sPag +
+      "</div>" +
+      "</div>";
+}
+
+window.goSponsorshipPage = function (n) {
+   state.spons.page = n;
+   renderSponsorship();
+};
+
+// ---- Toggle accordion ----
+window.toggleSponsorshipAccordion = function (id) {
+   var body = document.getElementById("spons-body-" + id);
+   var item = document.getElementById("spons-" + id);
+   if (!body) return;
+   var isOpen = body.style.display !== "none";
+   body.style.display = isOpen ? "none" : "block";
+   if (item) item.classList.toggle("open", !isOpen);
+};
+
+// ---- Buka modal tambah / edit ----
+window.openSponsorshipModal = async function (docId) {
+   var isEdit = !!docId;
+   var existing = null;
+
+   if (isEdit) {
+      existing =
+         (state.sponsorships || []).find(function (x) {
+            return x.id === docId;
+         }) || null;
+      if (!existing) {
+         try {
+            var snap = await db.collection("sponsorships").doc(docId).get();
+            if (snap.exists)
+               existing = Object.assign({ id: snap.id }, snap.data());
+         } catch (e) {
+            toast("Gagal memuat data: " + e.message, "error");
+            return;
+         }
+      }
+      if (!existing) {
+         toast("Data tidak ditemukan", "error");
+         return;
+      }
+   }
+
+   var v = existing || {
+      eventName: "",
+      eventDate: today,
+      location: "",
+      supportDetails: "",
+      estimatedCost: 0,
+   };
+
+   var body =
+      '<div class="form-group">' +
+      '<label>Nama Event <span style="color:var(--danger)">*</span></label>' +
+      '<input type="text" class="form-input" id="fSponsEventName" value="' +
+      (v.eventName || "").replace(/"/g, "&quot;") +
+      '" placeholder="Contoh: Anniversary Club Motor X" required>' +
+      "</div>" +
+      '<div class="form-row">' +
+      '<div class="form-group">' +
+      "<label>Tanggal Event</label>" +
+      '<input type="date" class="form-input" id="fSponsEventDate" value="' +
+      (v.eventDate || today) +
+      '">' +
+      "</div>" +
+      '<div class="form-group">' +
+      "<label>Lokasi</label>" +
+      '<input type="text" class="form-input" id="fSponsLocation" value="' +
+      (v.location || "").replace(/"/g, "&quot;") +
+      '" placeholder="Contoh: Bandung">' +
+      "</div>" +
+      "</div>" +
+      '<div class="form-group">' +
+      '<label>Rincian Support <span style="color:var(--danger)">*</span></label>' +
+      '<textarea class="form-input" id="fSponsSupportDetails" rows="3" placeholder="Contoh: 2 pcs Tail Bag + Uang Tunai Rp 300.000">' +
+      (v.supportDetails || "") +
+      "</textarea>" +
+      "</div>" +
+      '<div class="form-group">' +
+      "<label>Perkiraan Biaya (Rp)</label>" +
+      '<input type="text" inputmode="numeric" class="form-input" id="fSponsEstimatedCost" value="' +
+      (v.estimatedCost ? fmt(v.estimatedCost) : "") +
+      '" placeholder="Contoh: 300.000" oninput="formatRpInput(this)">' +
+      "</div>";
+
+   var footer =
+      '<button class="btn btn-outline btn-sm" onclick="closeModal()">Batal</button>' +
+      '<button class="btn btn-primary btn-sm" onclick="saveSponsorship(' +
+      (isEdit ? "'" + docId + "'" : "") +
+      ')">' +
+      '<i class="fas fa-check"></i>' +
+      (isEdit ? "Update" : "Simpan") +
+      "</button>";
+
+   openModal(
+      isEdit ? "Edit Support Sponsorship" : "Tambah Support Sponsorship",
+      body,
+      footer,
+   );
+};
+
+// ---- Simpan (Tambah / Update) ----
+window.saveSponsorship = async function (docId) {
+   var eventNameEl = document.getElementById("fSponsEventName");
+   var eventName = eventNameEl ? eventNameEl.value.trim() : "";
+   if (!eventName) {
+      toast("Nama event wajib diisi", "warning");
+      return;
+   }
+
+   var supportEl = document.getElementById("fSponsSupportDetails");
+   var supportDetails = supportEl ? supportEl.value.trim() : "";
+   if (!supportDetails) {
+      toast("Rincian support wajib diisi", "warning");
+      return;
+   }
+
+   var eventDateEl = document.getElementById("fSponsEventDate");
+   var locationEl = document.getElementById("fSponsLocation");
+   var costEl = document.getElementById("fSponsEstimatedCost");
+
+   var docData = sanitize({
+      eventName: eventName,
+      eventDate: eventDateEl ? eventDateEl.value : today,
+      location: locationEl ? locationEl.value.trim() : "",
+      supportDetails: supportDetails,
+      estimatedCost: parsePrice(costEl ? costEl.value : "0"),
+      updatedAt: new Date().toISOString(),
+   });
+
+   try {
+      if (docId) {
+         await db.collection("sponsorships").doc(docId).update(docData);
+         toast("Data sponsorship diperbarui", "success");
+      } else {
+         docData.createdAt = new Date().toISOString();
+         await db.collection("sponsorships").add(docData);
+         toast("Data sponsorship disimpan", "success");
+      }
+      closeModal();
+   } catch (err) {
+      toast("Gagal menyimpan: " + err.message, "error");
+   }
+};
+
+// ---- Hapus — konfirmasi ----
+window.deleteSponsorship = function (docId) {
+   var doc = (state.sponsorships || []).find(function (x) {
+      return x.id === docId;
+   });
+   if (!doc) {
+      toast("Data tidak ditemukan", "error");
+      return;
+   }
+
+   openModal(
+      "Konfirmasi Hapus",
+      '<div style="text-align:center;padding:10px 0">' +
+         '<i class="fas fa-trash" style="font-size:40px;color:var(--danger);opacity:.6;margin-bottom:14px;display:block"></i>' +
+         '<p style="font-size:15px;font-weight:600">Hapus sponsorship "' +
+         (doc.eventName || "-") +
+         '"?</p>' +
+         '<p style="font-size:13px;color:var(--text-muted);margin-top:6px">Tanggal: ' +
+         (doc.eventDate || "-") +
+         " — " +
+         fmtRp(doc.estimatedCost || 0) +
+         "</p>" +
+         "</div>",
+      '<button class="btn btn-outline btn-sm" onclick="closeModal()">Batal</button>' +
+         '<button class="btn btn-danger btn-sm" onclick="doDeleteSponsorship(\'' +
+         docId +
+         '\')"><i class="fas fa-trash"></i>Hapus</button>',
+   );
+};
+
+window.doDeleteSponsorship = async function (docId) {
+   try {
+      await db.collection("sponsorships").doc(docId).delete();
+      toast("Data sponsorship dihapus", "success");
       closeModal();
    } catch (err) {
       toast("Gagal menghapus: " + err.message, "error");
