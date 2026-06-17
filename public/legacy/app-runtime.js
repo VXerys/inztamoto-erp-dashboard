@@ -462,6 +462,13 @@ function updateUserDisplay(user) {
   if ($('#settingEmailInput')) $('#settingEmailInput').value = safeEmail;
   if ($('#userAvatar')) $('#userAvatar').textContent = initial;
   if ($('#settingsAvatar')) $('#settingsAvatar').textContent = initial;
+  updateNavigationAccess();
+}
+
+function updateNavigationAccess() {
+  const teamSalaryMenu = $('#menuTeamSalary');
+  if (!teamSalaryMenu) return;
+  teamSalaryMenu.style.display = getCurrentUserRole() === 'owner' ? '' : 'none';
 }
 
 /* =========================================================
@@ -609,6 +616,11 @@ const TITLES = {
 };
 
 function navigateTo(page) {
+  if (page === 'gajiKaryawan' && getCurrentUserRole() !== 'owner') {
+    toast('Akses Team Salary hanya untuk Owner', 'error');
+    page = 'dashboard';
+  }
+  updateNavigationAccess();
   state.currentPage = page;
   $$('.page').forEach(p => p.classList.remove('active'));
   const el = $('#page' + page.charAt(0).toUpperCase() + page.slice(1));
@@ -1920,7 +1932,7 @@ function renderProductionTable() {
       <td style="min-width:100px"><div style="display:flex;align-items:center;gap:8px"><div class="progress-bar" style="flex:1"><div class="fill ${fillCls}" style="width:${pctDone}%"></div></div><span style="font-size:12px;font-weight:600">${pctDone}%</span></div></td>
       <td><strong style="color:${isToday ? 'var(--success)' : 'var(--text)'}">${dateDisplay}</strong>${isToday ? ' <small style="color:var(--success);font-size:10px">Hari ini</small>' : ''}</td>
       <td>${prodStatusBadge(p.status)}</td>
-      <td><div class="action-btns"><button class="action-btn" title="Update" onclick="updateProdStatus('${p.id}')"><i class="fas fa-pen"></i></button></div></td>
+      <td><div class="action-btns"><button class="action-btn" title="Update" onclick="updateProdStatus('${p.id}')"><i class="fas fa-pen"></i></button><button class="action-btn del" title="Hapus" onclick="deleteProductionOrder('${p.id}')"><i class="fas fa-trash"></i></button></div></td>
     </tr>`;
   }).join('') : `<tr><td colspan="9"><div class="empty-state"><i class="fas fa-industry"></i><h4>Tidak ada data produksi</h4>${state.prodOrder.dateFilter ? `<p>Tidak ada produksi pada ${state.prodOrder.dateFilter}</p>` : ''}</div></td></tr>`;
 
@@ -1991,6 +2003,36 @@ window.doUpdateProdStatus = async function (id) {
     }
     toast('Status produksi diupdate', 'success'); closeModal();
   } catch (err) { toast('Gagal: ' + err.message, 'error'); }
+};
+
+window.deleteProductionOrder = async function (docId) {
+  if (!confirm('Yakin ingin menghapus data produksi ini?')) return;
+
+  try {
+    const prodRef = db.collection('production').doc(docId);
+    const snap = await prodRef.get();
+    if (!snap.exists) {
+      toast('Data produksi tidak ditemukan', 'error');
+      return;
+    }
+
+    const data = snap.data() || {};
+    const isCompleted = data.status === 'completed' || data.status === 'Selesai';
+    const completedQty = Number(data.completedQty || data.quantity || 0);
+
+    if (isCompleted && data.productId && completedQty > 0) {
+      await db.collection('products').doc(data.productId).update({
+        stock: firebase.firestore.FieldValue.increment(-completedQty),
+        updatedAt: new Date().toISOString()
+      });
+    }
+
+    await prodRef.delete();
+    toast('Data berhasil dihapus', 'success');
+    renderProduction();
+  } catch (err) {
+    toast('Gagal menghapus produksi: ' + err.message, 'error');
+  }
 };
 
 /* =========================================================
@@ -2374,7 +2416,7 @@ function renderSales() {
       <td style="font-size:12px;color:var(--text-muted)">${addressStr}</td>
       <td style="font-weight:600">${fmtRp(displayRevenue)}</td>
       <td style="color:var(--success);font-weight:600">${fmtRp(displayProfit)}</td>
-      <td><div class="action-btns"><button class="action-btn del" title="Hapus" onclick="deleteSale('${s.id}')"><i class="fas fa-trash"></i></button></div></td>
+      <td><div class="action-btns"><button class="action-btn" title="Edit" onclick="editSalesOrder('${s.id}')"><i class="fas fa-pen"></i></button><button class="action-btn del" title="Hapus" onclick="deleteSale('${s.id}')"><i class="fas fa-trash"></i></button></div></td>
     </tr>`;
   }).join('') : `<tr><td colspan="11"><div class="empty-state"><i class="fas fa-receipt"></i><h4>Belum ada data penjualan</h4></div></td></tr>`;
 
@@ -2459,6 +2501,199 @@ window.updateSaleForm = function () {
   if (diffEl) {
     diffEl.textContent = fmtRp(diff);
     diffEl.style.color = diff < 0 ? 'var(--danger)' : diff > 0 ? 'var(--success)' : '';
+  }
+};
+
+function getProductStatusByStock(stock) {
+  if (stock <= 0) return 'out_of_stock';
+  if (stock <= 5) return 'low_stock';
+  return 'active';
+}
+
+window.editSalesOrder = async function (docId) {
+  try {
+    let sale = state.sales.find(x => x.id === docId);
+    if (!sale) {
+      const snap = await db.collection('sales').doc(docId).get();
+      if (!snap.exists) {
+        toast('Transaksi tidak ditemukan', 'error');
+        return;
+      }
+      sale = { id: snap.id, ...snap.data() };
+    }
+
+    const attr = val => String(val || '').replace(/"/g, '&quot;');
+    const oldQty = Number(sale.quantity || 1);
+    const oldRealUnitPrice = Number(sale.realUnitPrice || (sale.realRevenue && oldQty ? sale.realRevenue / oldQty : sale.sellingPrice) || 0);
+    const selectedChannel = normalizeChannelValue(sale.channel || 'Reseller');
+    const productOpts = state.products.map(p =>
+      `<option value="${p.id}" ${p.id === sale.productId ? 'selected' : ''}>${p.name} (${p.sku})</option>`
+    ).join('');
+    const chOpts = CHANNELS.map(c =>
+      `<option value="${c}" ${c === selectedChannel ? 'selected' : ''}>${c}</option>`
+    ).join('');
+    const expOpts = EXPEDITIONS.map(e =>
+      `<option value="${e}" ${e === sale.expedition ? 'selected' : ''}>${e}</option>`
+    ).join('');
+
+    openModal('Edit Penjualan', `
+      <div class="form-group"><label>Produk</label><select class="form-input" id="fEditSaleProd" onchange="updateEditSaleForm()">${productOpts}</select></div>
+      <div class="form-row">
+        <div class="form-group"><label>Jumlah</label><input type="number" class="form-input" id="fEditSaleQty" value="${oldQty}" min="1" oninput="updateEditSaleForm()"></div>
+        <div class="form-group"><label>Channel</label><select class="form-input" id="fEditSaleChannel">${chOpts}</select></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Harga Default <small style="color:var(--text-muted);font-weight:400">(per unit)</small></label><input type="text" class="form-input" id="fEditSaleDefaultPrice" readonly style="background:var(--primary-light)"></div>
+        <div class="form-group"><label>Harga Real <small style="color:var(--text-muted);font-weight:400">(per unit)</small></label><input type="number" class="form-input" id="fEditSaleRealPrice" value="${oldRealUnitPrice}" min="0" oninput="updateEditSaleForm()"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Ekspedisi</label><select class="form-input" id="fEditSaleExpedition"><option value="">â€” Pilih Ekspedisi â€”</option>${expOpts}</select></div>
+        <div class="form-group"><label>Tanggal</label><input type="date" class="form-input" id="fEditSaleDate" value="${attr(sale.date || today)}"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Kecamatan</label><input type="text" class="form-input" id="fEditSaleDistrict" value="${attr(sale.district)}"></div>
+        <div class="form-group"><label>Kota</label><input type="text" class="form-input" id="fEditSaleCity" value="${attr(sale.city)}"></div>
+      </div>
+      <div class="form-group"><label>Pelanggan</label><input type="text" class="form-input" id="fEditSaleCustomer" value="${attr(sale.customer)}"></div>
+      <div style="padding:12px 14px;background:var(--primary-light);border-radius:var(--radius-sm);font-size:13px;margin-bottom:14px;display:grid;grid-template-columns:1fr 1fr;gap:6px 20px">
+        <span>Pendapatan Real: <strong id="fEditSaleRev">Rp 0</strong></span>
+        <span>Modal (HPP): <strong id="fEditSaleModal">Rp 0</strong></span>
+        <span>Keuntungan: <strong id="fEditSaleProfit" style="color:var(--success)">Rp 0</strong></span>
+        <span>Margin: <strong id="fEditSaleMargin">0%</strong></span>
+      </div>
+      <div class="form-group"><label>Catatan</label><input type="text" class="form-input" id="fEditSaleNotes" value="${attr(sale.notes)}"></div>
+    `, `<button class="btn btn-outline btn-sm" onclick="closeModal()">Batal</button><button class="btn btn-primary btn-sm" onclick="saveEditSalesOrder('${docId}')"><i class="fas fa-check"></i>Update</button>`);
+    setTimeout(updateEditSaleForm, 50);
+  } catch (err) {
+    toast('Gagal membuka edit penjualan: ' + err.message, 'error');
+  }
+};
+
+window.updateEditSaleForm = function () {
+  const pid = $('#fEditSaleProd') ? $('#fEditSaleProd').value : '';
+  const product = state.products.find(x => x.id === pid);
+  if (!product) return;
+
+  const qty = parseInt($('#fEditSaleQty').value, 10) || 1;
+  const realPriceInput = $('#fEditSaleRealPrice');
+  const realUnitPrice = (realPriceInput && realPriceInput.value !== '')
+    ? (parsePrice(realPriceInput.value) || product.sellingPrice || 0)
+    : (product.sellingPrice || 0);
+  const revenue = realUnitPrice * qty;
+  const modal = (Number(product.costPrice) || 0) * qty;
+  const profit = revenue - modal;
+  const margin = revenue > 0 ? Math.round((profit / revenue) * 100) : 0;
+
+  if ($('#fEditSaleDefaultPrice')) $('#fEditSaleDefaultPrice').value = fmtRp(product.sellingPrice || 0);
+  if ($('#fEditSaleRev')) $('#fEditSaleRev').textContent = fmtRp(revenue);
+  if ($('#fEditSaleModal')) $('#fEditSaleModal').textContent = fmtRp(modal);
+  if ($('#fEditSaleProfit')) $('#fEditSaleProfit').textContent = fmtRp(profit);
+  if ($('#fEditSaleMargin')) $('#fEditSaleMargin').textContent = margin + '%';
+};
+
+window.saveEditSalesOrder = async function (docId) {
+  try {
+    const saleRef = db.collection('sales').doc(docId);
+    const saleSnap = await saleRef.get();
+    if (!saleSnap.exists) {
+      toast('Transaksi tidak ditemukan', 'error');
+      return;
+    }
+
+    const oldSale = { id: saleSnap.id, ...saleSnap.data() };
+    const oldProduct = state.products.find(x => x.id === oldSale.productId);
+    const newProductId = $('#fEditSaleProd').value;
+    const newProduct = state.products.find(x => x.id === newProductId);
+    if (!newProduct) {
+      toast('Produk tidak ditemukan', 'error');
+      return;
+    }
+
+    const oldQty = Number(oldSale.quantity || 0);
+    const newQty = parseInt($('#fEditSaleQty').value, 10) || 1;
+    if (newQty < 1) {
+      toast('Jumlah minimal 1', 'warning');
+      return;
+    }
+
+    const sameProduct = oldSale.productId === newProductId;
+    const availableStock = sameProduct ? (Number(newProduct.stock) || 0) + oldQty : (Number(newProduct.stock) || 0);
+    if (newQty > availableStock) {
+      toast('Stok tidak mencukupi (tersedia: ' + availableStock + ')', 'error');
+      return;
+    }
+
+    const batch = db.batch();
+    const now = new Date().toISOString();
+
+    if (sameProduct) {
+      const stockDelta = oldQty - newQty;
+      const nextStock = (Number(newProduct.stock) || 0) + stockDelta;
+      batch.update(db.collection('products').doc(newProductId), {
+        stock: firebase.firestore.FieldValue.increment(stockDelta),
+        status: getProductStatusByStock(nextStock),
+        updatedAt: now
+      });
+    } else {
+      if (oldProduct) {
+        const oldNextStock = (Number(oldProduct.stock) || 0) + oldQty;
+        batch.update(db.collection('products').doc(oldSale.productId), {
+          stock: firebase.firestore.FieldValue.increment(oldQty),
+          status: getProductStatusByStock(oldNextStock),
+          updatedAt: now
+        });
+      }
+      const newNextStock = (Number(newProduct.stock) || 0) - newQty;
+      batch.update(db.collection('products').doc(newProductId), {
+        stock: firebase.firestore.FieldValue.increment(-newQty),
+        status: getProductStatusByStock(newNextStock),
+        updatedAt: now
+      });
+    }
+
+    const realUnitPrice = ($('#fEditSaleRealPrice') && $('#fEditSaleRealPrice').value !== '')
+      ? (parsePrice($('#fEditSaleRealPrice').value) || Number(newProduct.sellingPrice) || 0)
+      : (Number(newProduct.sellingPrice) || 0);
+    const sellingPrice = Number(newProduct.sellingPrice) || 0;
+    const costPrice = Number(newProduct.costPrice) || 0;
+    const standardRevenue = sellingPrice * newQty;
+    const realRevenue = realUnitPrice * newQty;
+    const modal = costPrice * newQty;
+    const realProfit = realRevenue - modal;
+    const margin = realRevenue > 0 ? Math.round((realProfit / realRevenue) * 100) : 0;
+
+    batch.update(saleRef, sanitize({
+      productId: newProductId,
+      productName: newProduct.name,
+      sku: newProduct.sku,
+      quantity: newQty,
+      costPrice,
+      sellingPrice,
+      realUnitPrice,
+      standardRevenue,
+      realRevenue,
+      revenue: realRevenue,
+      modal,
+      realProfit,
+      profit: realProfit,
+      margin,
+      marketplaceDifference: realRevenue - standardRevenue,
+      channel: $('#fEditSaleChannel').value,
+      expedition: ($('#fEditSaleExpedition') ? $('#fEditSaleExpedition').value : '') || '',
+      district: ($('#fEditSaleDistrict') ? $('#fEditSaleDistrict').value : '').trim(),
+      city: ($('#fEditSaleCity') ? $('#fEditSaleCity').value : '').trim(),
+      customer: ($('#fEditSaleCustomer') ? $('#fEditSaleCustomer').value : '').trim() || '-',
+      date: $('#fEditSaleDate').value,
+      notes: ($('#fEditSaleNotes') ? $('#fEditSaleNotes').value : '').trim(),
+      updatedAt: now
+    }));
+
+    await batch.commit();
+    toast('Penjualan berhasil diupdate', 'success');
+    closeModal();
+    renderSales();
+  } catch (err) {
+    toast('Gagal update penjualan: ' + err.message, 'error');
   }
 };
 
@@ -2895,8 +3130,8 @@ function renderPayrolls() {
   if (!container) return;
 
   const userRole = getCurrentUserRole();
-  if (userRole !== 'owner' && userRole !== 'admin') {
-    container.innerHTML = `<div class="empty-state"><i class="fas fa-lock"></i><h4>Akses ditolak</h4><p>Halaman ini hanya untuk Owner dan Admin</p></div>`;
+  if (userRole !== 'owner') {
+    container.innerHTML = `<div class="empty-state"><i class="fas fa-lock"></i><h4>Akses ditolak</h4><p>Halaman ini hanya untuk Owner</p></div>`;
     return;
   }
 

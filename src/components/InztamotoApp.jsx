@@ -165,7 +165,7 @@ export default function InztamotoApp() {
             <a href="#" className="nav-item" data-page="belanjaProduksi">
               <i className="fas fa-shopping-basket"></i>Belanja Produksi
             </a>
-            <a href="#" className="nav-item" data-page="gajiKaryawan">
+            <a href="#" className="nav-item" data-page="gajiKaryawan" id="menuTeamSalary">
               <i className="fas fa-money-bill-wave"></i>Team Salary
             </a>
             <a href="#" className="nav-item" data-page="inventaris">
