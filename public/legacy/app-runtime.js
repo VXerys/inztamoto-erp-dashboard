@@ -178,8 +178,8 @@ const state = {
    },
    pp: { search: "", week: "", status: "all", page: 1, perPage: 10 },
    payroll: { search: "", period: "", status: "all", page: 1, perPage: 10 },
-   salaryProd: { page: 1, perPage: 8 },
-   spons: { page: 1, perPage: 8 },
+   salaryProd: { search: "", month: "all", year: "all", page: 1, perPage: 8 },
+   spons: { search: "", month: "all", year: "all", page: 1, perPage: 8 },
    stockHistory: { search: "", filter: "bulan_ini", page: 1, perPage: 15 },
    report: { month: "all", year: String(new Date().getFullYear()) },
    charts: {},
@@ -5057,6 +5057,27 @@ function renderSalaryProduksi() {
    }
 
    var list = state.salaryProduksi || [];
+
+   // --- Filtering: search ---
+   if (state.salaryProd.search) {
+      var q = state.salaryProd.search.toLowerCase();
+      list = list.filter(function (d) {
+         var names = d.workers && d.workers.length > 0 ? d.workers.join(" ") : (d.workerName || "");
+         var itemNames = (d.items || []).map(function (i) { return i.productName || ""; }).join(" ");
+         return names.toLowerCase().indexOf(q) !== -1 || itemNames.toLowerCase().indexOf(q) !== -1;
+      });
+   }
+
+   // --- Filtering: month/year ---
+   if (state.salaryProd.month !== "all" || state.salaryProd.year !== "all") {
+      list = list.filter(function (d) {
+         return matchesMonthYear(d.periodDate, state.salaryProd.month, state.salaryProd.year);
+      });
+   }
+
+   // --- Period total ---
+   var periodTotal = list.reduce(function (sum, d) { return sum + (d.grandTotal || 0); }, 0);
+
    var spPerPage = state.salaryProd.perPage;
    var spTotal = Math.max(1, Math.ceil(list.length / spPerPage));
    if (state.salaryProd.page > spTotal) state.salaryProd.page = 1;
@@ -5118,7 +5139,9 @@ function renderSalaryProduksi() {
                  '<div class="cat-acc-icon"><i class="fas fa-user-tie"></i></div>' +
                  '<div class="cat-acc-info">' +
                  "<h4>" +
-                 (doc.workerName || "-") +
+                 (doc.workers && doc.workers.length > 0
+                    ? doc.workers.join(", ")
+                    : doc.workerName || "-") +
                  "</h4>" +
                  '<p><span class="badge badge-in_progress">' +
                  (doc.periodDate || "-") +
@@ -5176,8 +5199,25 @@ function renderSalaryProduksi() {
       (state.salaryProd.page + 1) +
       ')"><i class="fas fa-chevron-right"></i></button>';
 
+   // --- Build month/year filter options ---
+   var spMonthOpts = '<option value="all"' + (state.salaryProd.month === "all" ? " selected" : "") + '>Semua Bulan</option>';
+   MONTH_OPTIONS.forEach(function (m) {
+      spMonthOpts += '<option value="' + m.value + '"' + (state.salaryProd.month === m.value ? " selected" : "") + '>' + m.label + '</option>';
+   });
+   var spYears = new Set();
+   (state.salaryProduksi || []).forEach(function (d) {
+      var y = (d.periodDate || "").substring(0, 4);
+      if (/^\d{4}$/.test(y)) spYears.add(y);
+   });
+   spYears.add(String(new Date().getFullYear()));
+   var spSortedYears = Array.from(spYears).sort(function (a, b) { return b.localeCompare(a); });
+   var spYearOpts = '<option value="all"' + (state.salaryProd.year === "all" ? " selected" : "") + '>Semua Tahun</option>';
+   spSortedYears.forEach(function (y) {
+      spYearOpts += '<option value="' + y + '"' + (state.salaryProd.year === y ? " selected" : "") + '>' + y + '</option>';
+   });
+
    container.innerHTML =
-      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">' +
+      '<div class="cat-toolbar">' +
       "<div>" +
       '<h3 style="font-size:16px;font-weight:700">Daftar Gaji Borongan</h3>' +
       '<p style="font-size:13px;color:var(--text-muted);margin-top:4px">' +
@@ -5188,6 +5228,32 @@ function renderSalaryProduksi() {
       '<i class="fas fa-plus"></i>Tambah Data' +
       "</button>" +
       "</div>" +
+      // --- Toolbar: search + filters ---
+      '<div class="table-toolbar" style="margin-bottom:14px">' +
+      '<div class="table-search">' +
+      '<i class="fas fa-search"></i>' +
+      '<input type="text" placeholder="Cari nama pekerja / item..." id="spSearch" value="' + (state.salaryProd.search || "").replace(/"/g, "&quot;") + '">' +
+      '</div>' +
+      '<div class="table-filter">' +
+      '<select id="spMonthFilter">' + spMonthOpts + '</select>' +
+      '</div>' +
+      '<div class="table-filter">' +
+      '<select id="spYearFilter">' + spYearOpts + '</select>' +
+      '</div>' +
+      '</div>' +
+      // --- Period total summary ---
+      '<div class="stat-grid" style="margin-bottom:14px">' +
+      '<div class="stat-card green">' +
+      '<div class="sc-top"><div class="sc-icon"><i class="fas fa-money-bill-wave"></i></div><span class="sc-label">Total Gaji (Periode)</span></div>' +
+      '<div class="sc-value" style="font-size:clamp(16px,4vw,22px);word-break:break-word">' + fmtRp(periodTotal) + '</div>' +
+      '<div class="sc-sub">gaji borongan terbayar</div>' +
+      '</div>' +
+      '<div class="stat-card gold">' +
+      '<div class="sc-top"><div class="sc-icon"><i class="fas fa-list-check"></i></div><span class="sc-label">Jumlah Data</span></div>' +
+      '<div class="sc-value" style="font-size:clamp(16px,4vw,22px)">' + list.length + '</div>' +
+      '<div class="sc-sub">entri salary produksi</div>' +
+      '</div>' +
+      '</div>' +
       '<div class="cat-accordion" id="salaryProduksiList">' +
       accordionItems +
       "</div>" +
@@ -5207,6 +5273,32 @@ function renderSalaryProduksi() {
       spPag +
       "</div>" +
       "</div>";
+
+   // --- Attach filter listeners ---
+   var spSearchEl = document.getElementById("spSearch");
+   if (spSearchEl) {
+      spSearchEl.addEventListener("input", function (e) {
+         state.salaryProd.search = e.target.value;
+         state.salaryProd.page = 1;
+         renderSalaryProduksi();
+      });
+   }
+   var spMonthEl = document.getElementById("spMonthFilter");
+   if (spMonthEl) {
+      spMonthEl.addEventListener("change", function (e) {
+         state.salaryProd.month = e.target.value;
+         state.salaryProd.page = 1;
+         renderSalaryProduksi();
+      });
+   }
+   var spYearEl = document.getElementById("spYearFilter");
+   if (spYearEl) {
+      spYearEl.addEventListener("change", function (e) {
+         state.salaryProd.year = e.target.value;
+         state.salaryProd.page = 1;
+         renderSalaryProduksi();
+      });
+   }
 }
 
 window.goSalaryProduksiPage = function (n) {
@@ -5258,9 +5350,10 @@ window.openSalaryProduksiModal = async function (docId) {
    var body =
       '<div class="form-group">' +
       "<label>Nama Pekerja</label>" +
-      '<input type="text" class="form-input" id="fSpWorker" value="' +
-      (v.workerName || "") +
-      '" placeholder="Nama lengkap pekerja" required>' +
+      '<div id="spWorkerList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>' +
+      '<button type="button" class="btn btn-outline btn-sm" onclick="addSalaryWorkerRow()">' +
+      '<i class="fas fa-plus"></i>Tambah Nama' +
+      "</button>" +
       "</div>" +
       '<div class="form-group">' +
       "<label>Periode / Tanggal</label>" +
@@ -5271,9 +5364,14 @@ window.openSalaryProduksiModal = async function (docId) {
       '<div class="form-group">' +
       "<label>Daftar Item Jahitan</label>" +
       '<div id="salaryProduksiItems" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px"></div>' +
-      '<button type="button" class="btn btn-outline btn-sm" onclick="addSalaryProduksiRow()" style="margin-top:2px">' +
-      '<i class="fas fa-plus"></i>Add Item' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px">' +
+      '<button type="button" class="btn btn-outline btn-sm" onclick="addSalaryProduksiRow()">' +
+      '<i class="fas fa-tag"></i>+ Produk' +
       "</button>" +
+      '<button type="button" class="btn btn-outline btn-sm" onclick="addSalaryProduksiCustomRow()">' +
+      '<i class="fas fa-pencil"></i>+ Item Manual' +
+      "</button>" +
+      "</div>" +
       "</div>" +
       '<div style="padding:12px 16px;background:var(--primary-light);border-radius:var(--radius-sm);display:flex;justify-content:space-between;align-items:center;margin-top:10px">' +
       '<span style="font-size:14px;font-weight:600">Total Gaji:</span>' +
@@ -5295,10 +5393,31 @@ window.openSalaryProduksiModal = async function (docId) {
       footer,
    );
 
-   // Populate baris item setelah modal dirender
+   // Populate workers
+   var initWorkers =
+      isEdit && existing
+         ? existing.workers && existing.workers.length > 0
+            ? existing.workers
+            : existing.workerName
+              ? [existing.workerName]
+              : []
+         : [];
+   if (initWorkers.length > 0) {
+      initWorkers.forEach(function (n) {
+         addSalaryWorkerRow(n);
+      });
+   } else {
+      addSalaryWorkerRow();
+   }
+
+   // Populate items (dispatch ke product row atau custom row berdasar field type)
    if (isEdit && existing && existing.items && existing.items.length > 0) {
       existing.items.forEach(function (item) {
-         addSalaryProduksiRow(item);
+         if (item.type === "custom") {
+            addSalaryProduksiCustomRow(item);
+         } else {
+            addSalaryProduksiRow(item);
+         }
       });
    } else {
       addSalaryProduksiRow();
@@ -5366,6 +5485,69 @@ window.addSalaryProduksiRow = function (itemData) {
    calcSalaryGrandTotal();
 };
 
+// ---- Tambah baris nama pekerja ----
+window.addSalaryWorkerRow = function (nameValue) {
+   var container = document.getElementById("spWorkerList");
+   if (!container) return;
+   var row = document.createElement("div");
+   row.className = "sp-worker-row";
+   row.style.cssText = "display:flex;gap:6px;align-items:center";
+   row.innerHTML =
+      '<input type="text" class="form-input sp-worker-name" value="' +
+      ((nameValue || "").replace(/"/g, "&quot;")) +
+      '" placeholder="Nama pekerja" style="flex:1;font-size:13px;padding:7px 10px">' +
+      '<button type="button" title="Hapus"' +
+      " onclick=\"this.closest('.sp-worker-row').remove()\"" +
+      ' style="width:28px;height:28px;border:none;background:var(--danger);color:#fff;' +
+      "border-radius:var(--radius-sm);cursor:pointer;font-size:13px;" +
+      'display:flex;align-items:center;justify-content:center;flex-shrink:0">' +
+      '<i class="fas fa-xmark"></i>' +
+      "</button>";
+   container.appendChild(row);
+};
+
+// ---- Tambah baris item custom (manual input nama item) ----
+window.addSalaryProduksiCustomRow = function (itemData) {
+   var container = document.getElementById("salaryProduksiItems");
+   if (!container) return;
+
+   var itemName = itemData ? itemData.productName || "" : "";
+   var qty = itemData ? itemData.qty || 1 : 1;
+   var upah = itemData ? itemData.upah || 0 : 0;
+   var subv = itemData ? itemData.subtotal || qty * upah : 0;
+
+   var row = document.createElement("div");
+   row.className = "sp-item-row sp-custom-row";
+   row.style.cssText =
+      "display:grid;grid-template-columns:2fr 72px 110px 100px 30px;gap:6px;align-items:center";
+   row.innerHTML =
+      '<input type="text" class="form-input sp-custom-name" value="' +
+      (itemName.replace(/"/g, "&quot;")) +
+      '" placeholder="Nama item (manual)" style="font-size:12px;padding:6px 8px">' +
+      '<input type="number" class="form-input sp-qty" value="' +
+      qty +
+      '" min="1" placeholder="Qty"' +
+      ' style="font-size:12px;padding:6px 8px;text-align:center" oninput="calcSalaryGrandTotal()">' +
+      '<input type="number" class="form-input sp-upah" value="' +
+      upah +
+      '" min="0" placeholder="Upah/pcs"' +
+      ' style="font-size:12px;padding:6px 8px" oninput="calcSalaryGrandTotal()">' +
+      '<div class="sp-subtotal" style="font-size:12px;font-weight:600;color:var(--primary);padding:6px 8px;' +
+      'background:var(--bg-secondary);border-radius:var(--radius-sm);text-align:right">' +
+      fmtRp(subv) +
+      "</div>" +
+      '<button type="button" title="Hapus baris"' +
+      " onclick=\"this.closest('.sp-item-row').remove(); calcSalaryGrandTotal();\"" +
+      ' style="width:28px;height:28px;border:none;background:var(--danger);color:#fff;' +
+      "border-radius:var(--radius-sm);cursor:pointer;font-size:13px;" +
+      'display:flex;align-items:center;justify-content:center;flex-shrink:0">' +
+      '<i class="fas fa-xmark"></i>' +
+      "</button>";
+
+   container.appendChild(row);
+   calcSalaryGrandTotal();
+};
+
 // ---- Hitung ulang subtotal tiap baris & grand total ----
 window.calcSalaryGrandTotal = function () {
    var rows = document.querySelectorAll("#salaryProduksiItems .sp-item-row");
@@ -5384,12 +5566,21 @@ window.calcSalaryGrandTotal = function () {
 
 // ---- Simpan (Tambah / Update) ----
 window.saveSalaryProduksi = async function (docId) {
-   var workerEl = document.getElementById("fSpWorker");
-   var workerName = workerEl ? workerEl.value.trim() : "";
-   if (!workerName) {
-      toast("Nama pekerja wajib diisi", "warning");
+   // Collect worker names from spWorkerList
+   var workerRows = document.querySelectorAll("#spWorkerList .sp-worker-row");
+   var workers = [];
+   workerRows.forEach(function (row) {
+      var input = row.querySelector(".sp-worker-name");
+      var name = input ? input.value.trim() : "";
+      if (name) workers.push(name);
+   });
+   if (workers.length === 0) {
+      toast("Nama pekerja wajib diisi minimal 1", "warning");
       return;
    }
+
+   // Backward-compatible workerName (first name)
+   var workerName = workers[0];
 
    var dateEl = document.getElementById("fSpDate");
    var periodDate = dateEl ? dateEl.value : today;
@@ -5399,14 +5590,26 @@ window.saveSalaryProduksi = async function (docId) {
    var grandTotal = 0;
 
    rows.forEach(function (row) {
-      var selectEl = row.querySelector(".sp-product");
-      var productId = selectEl ? selectEl.value : "";
-      var selectedOpt = selectEl
-         ? selectEl.options[selectEl.selectedIndex]
-         : null;
-      var productName = selectedOpt
-         ? selectedOpt.dataset.name || selectedOpt.text
-         : "";
+      var isCustom = row.classList.contains("sp-custom-row");
+      var productId = "";
+      var productName = "";
+
+      if (isCustom) {
+         // Custom item — read from text input
+         var nameInput = row.querySelector(".sp-custom-name");
+         productName = nameInput ? nameInput.value.trim() : "";
+      } else {
+         // Product item — read from select
+         var selectEl = row.querySelector(".sp-product");
+         productId = selectEl ? selectEl.value : "";
+         var selectedOpt = selectEl
+            ? selectEl.options[selectEl.selectedIndex]
+            : null;
+         productName = selectedOpt
+            ? selectedOpt.dataset.name || selectedOpt.text
+            : "";
+      }
+
       var qty = parseFloat(row.querySelector(".sp-qty").value) || 0;
       var upah = parseFloat(row.querySelector(".sp-upah").value) || 0;
       var subtotal = qty * upah;
@@ -5415,6 +5618,7 @@ window.saveSalaryProduksi = async function (docId) {
       if (qty > 0 || upah > 0) {
          items.push(
             sanitize({
+               type: isCustom ? "custom" : "product",
                productId: productId,
                productName: productName,
                qty: qty,
@@ -5432,6 +5636,7 @@ window.saveSalaryProduksi = async function (docId) {
 
    var docData = sanitize({
       workerName: workerName,
+      workers: workers,
       periodDate: periodDate,
       items: items,
       grandTotal: grandTotal,
@@ -5513,6 +5718,28 @@ function renderSponsorship() {
    }
 
    var list = state.sponsorships || [];
+
+   // --- Filtering: search ---
+   if (state.spons.search) {
+      var q = state.spons.search.toLowerCase();
+      list = list.filter(function (d) {
+         return (d.eventName || "").toLowerCase().indexOf(q) !== -1 ||
+            (d.location || "").toLowerCase().indexOf(q) !== -1 ||
+            (d.supportDetails || "").toLowerCase().indexOf(q) !== -1 ||
+            ((d.supportItems || []).map(function (si) { return si.itemName || ""; }).join(" ")).toLowerCase().indexOf(q) !== -1;
+      });
+   }
+
+   // --- Filtering: month/year ---
+   if (state.spons.month !== "all" || state.spons.year !== "all") {
+      list = list.filter(function (d) {
+         return matchesMonthYear(d.eventDate, state.spons.month, state.spons.year);
+      });
+   }
+
+   // --- Period total ---
+   var sponsPeriodTotal = list.reduce(function (sum, d) { return sum + (d.estimatedCost || 0); }, 0);
+
    var sPerPage = state.spons.perPage;
    var sTotal = Math.max(1, Math.ceil(list.length / sPerPage));
    if (state.spons.page > sTotal) state.spons.page = 1;
@@ -5575,9 +5802,19 @@ function renderSponsorship() {
                  '<div style="display:flex;flex-direction:column;gap:14px;padding:4px 0">' +
                  "<div>" +
                  '<p style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Rincian Support</p>' +
-                 '<p style="font-size:13px;line-height:1.7;white-space:pre-wrap">' +
-                 (doc.supportDetails || "-") +
-                 "</p>" +
+                 (doc.supportItems && doc.supportItems.length > 0
+                    ? '<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">' +
+                      doc.supportItems.map(function (si) {
+                         return '<div style="font-size:13px;line-height:1.6"><i class="fas fa-box" style="color:var(--primary);margin-right:6px;font-size:11px"></i><strong>' +
+                            (si.itemName || "-") + '</strong>' +
+                            (si.qty ? ' — <span style="color:var(--text-muted)">' + si.qty + '</span>' : '') +
+                            '</div>';
+                      }).join("") +
+                      "</div>"
+                    : "") +
+                 (doc.supportDetails
+                    ? '<p style="font-size:13px;line-height:1.7;white-space:pre-wrap;color:var(--text-muted)">' + doc.supportDetails + "</p>"
+                    : (!(doc.supportItems && doc.supportItems.length > 0) ? '<p style="font-size:13px;color:var(--text-muted)">-</p>' : "")) +
                  "</div>" +
                  '<div style="display:flex;gap:20px;flex-wrap:wrap;padding:10px 14px;background:var(--primary-light);border-radius:var(--radius-sm);font-size:13px">' +
                  '<span><i class="fas fa-location-dot" style="color:var(--primary);margin-right:6px"></i><strong>Lokasi:</strong> ' +
@@ -5622,8 +5859,25 @@ function renderSponsorship() {
       (state.spons.page + 1) +
       ')"><i class="fas fa-chevron-right"></i></button>';
 
+   // --- Build month/year filter options ---
+   var sponsMonthOpts = '<option value="all"' + (state.spons.month === "all" ? " selected" : "") + '>Semua Bulan</option>';
+   MONTH_OPTIONS.forEach(function (m) {
+      sponsMonthOpts += '<option value="' + m.value + '"' + (state.spons.month === m.value ? " selected" : "") + '>' + m.label + '</option>';
+   });
+   var sponsYears = new Set();
+   (state.sponsorships || []).forEach(function (d) {
+      var y = (d.eventDate || "").substring(0, 4);
+      if (/^\d{4}$/.test(y)) sponsYears.add(y);
+   });
+   sponsYears.add(String(new Date().getFullYear()));
+   var sponsSortedYears = Array.from(sponsYears).sort(function (a, b) { return b.localeCompare(a); });
+   var sponsYearOpts = '<option value="all"' + (state.spons.year === "all" ? " selected" : "") + '>Semua Tahun</option>';
+   sponsSortedYears.forEach(function (y) {
+      sponsYearOpts += '<option value="' + y + '"' + (state.spons.year === y ? " selected" : "") + '>' + y + '</option>';
+   });
+
    container.innerHTML =
-      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">' +
+      '<div class="cat-toolbar">' +
       "<div>" +
       '<h3 style="font-size:16px;font-weight:700">Riwayat Support & Sponsorship</h3>' +
       '<p style="font-size:13px;color:var(--text-muted);margin-top:4px">' +
@@ -5634,6 +5888,32 @@ function renderSponsorship() {
       '<i class="fas fa-plus"></i>Tambah Data' +
       "</button>" +
       "</div>" +
+      // --- Toolbar: search + filters ---
+      '<div class="table-toolbar" style="margin-bottom:14px">' +
+      '<div class="table-search">' +
+      '<i class="fas fa-search"></i>' +
+      '<input type="text" placeholder="Cari event, lokasi, item..." id="sponsSearch" value="' + (state.spons.search || "").replace(/"/g, "&quot;") + '">' +
+      '</div>' +
+      '<div class="table-filter">' +
+      '<select id="sponsMonthFilter">' + sponsMonthOpts + '</select>' +
+      '</div>' +
+      '<div class="table-filter">' +
+      '<select id="sponsYearFilter">' + sponsYearOpts + '</select>' +
+      '</div>' +
+      '</div>' +
+      // --- Period total summary ---
+      '<div class="stat-grid" style="margin-bottom:14px">' +
+      '<div class="stat-card green">' +
+      '<div class="sc-top"><div class="sc-icon"><i class="fas fa-handshake-angle"></i></div><span class="sc-label">Total Biaya (Periode)</span></div>' +
+      '<div class="sc-value" style="font-size:clamp(16px,4vw,22px);word-break:break-word">' + fmtRp(sponsPeriodTotal) + '</div>' +
+      '<div class="sc-sub">perkiraan biaya sponsorship</div>' +
+      '</div>' +
+      '<div class="stat-card gold">' +
+      '<div class="sc-top"><div class="sc-icon"><i class="fas fa-calendar-check"></i></div><span class="sc-label">Jumlah Event</span></div>' +
+      '<div class="sc-value" style="font-size:clamp(16px,4vw,22px)">' + list.length + '</div>' +
+      '<div class="sc-sub">event tersimpan</div>' +
+      '</div>' +
+      '</div>' +
       '<div class="cat-accordion" id="sponsorshipList">' +
       accordionItems +
       "</div>" +
@@ -5653,6 +5933,32 @@ function renderSponsorship() {
       sPag +
       "</div>" +
       "</div>";
+
+   // --- Attach filter listeners ---
+   var sponsSearchEl = document.getElementById("sponsSearch");
+   if (sponsSearchEl) {
+      sponsSearchEl.addEventListener("input", function (e) {
+         state.spons.search = e.target.value;
+         state.spons.page = 1;
+         renderSponsorship();
+      });
+   }
+   var sponsMonthEl = document.getElementById("sponsMonthFilter");
+   if (sponsMonthEl) {
+      sponsMonthEl.addEventListener("change", function (e) {
+         state.spons.month = e.target.value;
+         state.spons.page = 1;
+         renderSponsorship();
+      });
+   }
+   var sponsYearEl = document.getElementById("sponsYearFilter");
+   if (sponsYearEl) {
+      sponsYearEl.addEventListener("change", function (e) {
+         state.spons.year = e.target.value;
+         state.spons.page = 1;
+         renderSponsorship();
+      });
+   }
 }
 
 window.goSponsorshipPage = function (n) {
@@ -5726,8 +6032,20 @@ window.openSponsorshipModal = async function (docId) {
       "</div>" +
       "</div>" +
       '<div class="form-group">' +
-      '<label>Rincian Support <span style="color:var(--danger)">*</span></label>' +
-      '<textarea class="form-input" id="fSponsSupportDetails" rows="3" placeholder="Contoh: 2 pcs Tail Bag + Uang Tunai Rp 300.000">' +
+      '<label>Rincian Support (Opsional)</label>' +
+      '<div id="sponsSupportItems" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px">' +
+      '<button type="button" class="btn btn-outline btn-sm" onclick="addSponsorshipProductRow()">' +
+      '<i class="fas fa-tag"></i>+ Produk' +
+      "</button>" +
+      '<button type="button" class="btn btn-outline btn-sm" onclick="addSponsorshipItemRow()">' +
+      '<i class="fas fa-pencil"></i>+ Item Manual' +
+      "</button>" +
+      "</div>" +
+      "</div>" +
+      '<div class="form-group">' +
+      '<label>Deskripsi / Catatan (Opsional)</label>' +
+      '<textarea class="form-input" id="fSponsSupportDetails" rows="2" placeholder="Catatan tambahan...">' +
       (v.supportDetails || "") +
       "</textarea>" +
       "</div>" +
@@ -5752,6 +6070,81 @@ window.openSponsorshipModal = async function (docId) {
       body,
       footer,
    );
+
+   // Populate support items if editing
+   if (isEdit && existing && existing.supportItems && existing.supportItems.length > 0) {
+      existing.supportItems.forEach(function (si) {
+         if (si.type === "product") {
+            addSponsorshipProductRow(si);
+         } else {
+            addSponsorshipItemRow(si);
+         }
+      });
+   }
+};
+
+// ---- Tambah baris item produk (dari dropdown produk) ----
+window.addSponsorshipProductRow = function (itemData) {
+   var container = document.getElementById("sponsSupportItems");
+   if (!container) return;
+
+   var productOpts = '<option value="">-- Pilih Produk --</option>';
+   (state.products || []).forEach(function (p) {
+      var safeName = (p.name || "").replace(/"/g, "&quot;");
+      var selected = itemData && itemData.productId === p.id ? " selected" : "";
+      productOpts +=
+         '<option value="' + p.id + '" data-name="' + safeName + '"' + selected + ">" +
+         (p.name || "-") + " (" + (p.sku || "") + ")</option>";
+   });
+
+   var qty = itemData ? itemData.qty || "" : "";
+
+   var row = document.createElement("div");
+   row.className = "spons-item-row spons-product-row";
+   row.style.cssText = "display:grid;grid-template-columns:2fr 1fr 28px;gap:6px;align-items:center";
+   row.innerHTML =
+      '<select class="form-input spons-product-select" style="font-size:12px;padding:6px 8px">' +
+      productOpts +
+      "</select>" +
+      '<input type="text" class="form-input spons-item-qty" value="' +
+      (String(qty).replace(/"/g, "&quot;")) +
+      '" placeholder="Qty (misal: 2 pcs)" style="font-size:12px;padding:6px 8px">' +
+      '<button type="button" title="Hapus"' +
+      " onclick=\"this.closest('.spons-item-row').remove()\"" +
+      ' style="width:28px;height:28px;border:none;background:var(--danger);color:#fff;' +
+      "border-radius:var(--radius-sm);cursor:pointer;font-size:13px;" +
+      'display:flex;align-items:center;justify-content:center;flex-shrink:0">' +
+      '<i class="fas fa-xmark"></i>' +
+      "</button>";
+   container.appendChild(row);
+};
+
+// ---- Tambah baris item manual (text input) ----
+window.addSponsorshipItemRow = function (itemData) {
+   var container = document.getElementById("sponsSupportItems");
+   if (!container) return;
+
+   var itemName = itemData ? itemData.itemName || "" : "";
+   var qty = itemData ? itemData.qty || "" : "";
+
+   var row = document.createElement("div");
+   row.className = "spons-item-row spons-manual-row";
+   row.style.cssText = "display:grid;grid-template-columns:2fr 1fr 28px;gap:6px;align-items:center";
+   row.innerHTML =
+      '<input type="text" class="form-input spons-item-name" value="' +
+      (itemName.replace(/"/g, "&quot;")) +
+      '" placeholder="Nama item (misal: Uang Tunai)" style="font-size:12px;padding:6px 8px">' +
+      '<input type="text" class="form-input spons-item-qty" value="' +
+      (String(qty).replace(/"/g, "&quot;")) +
+      '" placeholder="Qty (misal: 2 pcs)" style="font-size:12px;padding:6px 8px">' +
+      '<button type="button" title="Hapus"' +
+      " onclick=\"this.closest('.spons-item-row').remove()\"" +
+      ' style="width:28px;height:28px;border:none;background:var(--danger);color:#fff;' +
+      "border-radius:var(--radius-sm);cursor:pointer;font-size:13px;" +
+      'display:flex;align-items:center;justify-content:center;flex-shrink:0">' +
+      '<i class="fas fa-xmark"></i>' +
+      "</button>";
+   container.appendChild(row);
 };
 
 // ---- Simpan (Tambah / Update) ----
@@ -5765,10 +6158,31 @@ window.saveSponsorship = async function (docId) {
 
    var supportEl = document.getElementById("fSponsSupportDetails");
    var supportDetails = supportEl ? supportEl.value.trim() : "";
-   if (!supportDetails) {
-      toast("Rincian support wajib diisi", "warning");
-      return;
-   }
+
+   // Collect support items — both product rows and manual rows
+   var supportItemRows = document.querySelectorAll("#sponsSupportItems .spons-item-row");
+   var supportItems = [];
+   supportItemRows.forEach(function (row) {
+      var isProduct = row.classList.contains("spons-product-row");
+      var qtyInput = row.querySelector(".spons-item-qty");
+      var qty = qtyInput ? qtyInput.value.trim() : "";
+
+      if (isProduct) {
+         var selectEl = row.querySelector(".spons-product-select");
+         var productId = selectEl ? selectEl.value : "";
+         var selectedOpt = selectEl ? selectEl.options[selectEl.selectedIndex] : null;
+         var productName = selectedOpt ? selectedOpt.dataset.name || selectedOpt.text : "";
+         if (productId || productName) {
+            supportItems.push(sanitize({ type: "product", productId: productId, itemName: productName, qty: qty }));
+         }
+      } else {
+         var nameInput = row.querySelector(".spons-item-name");
+         var itemName = nameInput ? nameInput.value.trim() : "";
+         if (itemName) {
+            supportItems.push(sanitize({ type: "manual", itemName: itemName, qty: qty }));
+         }
+      }
+   });
 
    var eventDateEl = document.getElementById("fSponsEventDate");
    var locationEl = document.getElementById("fSponsLocation");
@@ -5779,6 +6193,7 @@ window.saveSponsorship = async function (docId) {
       eventDate: eventDateEl ? eventDateEl.value : today,
       location: locationEl ? locationEl.value.trim() : "",
       supportDetails: supportDetails,
+      supportItems: supportItems,
       estimatedCost: parsePrice(costEl ? costEl.value : "0"),
       updatedAt: new Date().toISOString(),
    });

@@ -953,3 +953,126 @@ select.form-input {
     min-width: 720px;
   }
 }
+
+/* ===== Salary Produksi & Sponsorship — accordion header mobile fix ===== */
+
+/* Accordion header: price value no longer floats over text on mobile */
+@media (max-width: 768px) {
+  /* Summary stat-grid on salary + sponsorship pages */
+  #pageSalaryProduksi .stat-grid,
+  #pageSponsorship .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-bottom: 14px;
+  }
+
+  /* Ensure accordion doesn't overflow page */
+  #pageSalaryProduksi .cat-accordion,
+  #pageSponsorship .cat-accordion {
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  #pageSalaryProduksi .cat-accordion-item,
+  #pageSponsorship .cat-accordion-item {
+    max-width: 100%;
+  }
+
+  /* Accordion header: allow info block to be full-width row, then price + actions on next row */
+  #pageSalaryProduksi .cat-accordion-header,
+  #pageSponsorship .cat-accordion-header {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 12px 14px;
+  }
+
+  /* Icon stays on left, info takes remaining space on first row */
+  #pageSalaryProduksi .cat-acc-icon,
+  #pageSponsorship .cat-acc-icon {
+    flex-shrink: 0;
+    width: 38px;
+    height: 38px;
+    font-size: 15px;
+  }
+
+  #pageSalaryProduksi .cat-acc-info,
+  #pageSponsorship .cat-acc-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* Price div: break to its own row after info, remove margin-left:auto */
+  #pageSalaryProduksi .cat-accordion-header > div[style*="margin-left:auto"],
+  #pageSponsorship .cat-accordion-header > div[style*="margin-left:auto"] {
+    margin-left: 0 !important;
+    width: 100%;
+    padding-left: 46px; /* align under text (icon 38px + gap 8px) */
+    padding-right: 0;
+    font-size: 14px !important;
+  }
+
+  /* Actions and chevron stay on the right of the price row */
+  #pageSalaryProduksi .cat-acc-actions,
+  #pageSponsorship .cat-acc-actions {
+    margin-left: auto;
+  }
+
+  /* Info title text: allow wrapping, don't truncate */
+  #pageSalaryProduksi .cat-acc-info h4,
+  #pageSponsorship .cat-acc-info h4 {
+    white-space: normal;
+    word-break: break-word;
+    font-size: 14px;
+  }
+
+  #pageSalaryProduksi .cat-acc-info p,
+  #pageSponsorship .cat-acc-info p {
+    white-space: normal;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+  }
+
+  /* sc-value responsive on small screens */
+  #pageSalaryProduksi .sc-value,
+  #pageSponsorship .sc-value {
+    font-size: clamp(14px, 4vw, 20px);
+    word-break: break-word;
+  }
+
+  #pageSalaryProduksi .sc-label,
+  #pageSponsorship .sc-label {
+    font-size: 10px;
+    line-height: 1.3;
+  }
+
+  /* Expanded accordion body inner padding */
+  #pageSalaryProduksi .cat-acc-inner,
+  #pageSponsorship .cat-acc-inner {
+    padding: 0 14px 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  #pageSalaryProduksi .stat-grid,
+  #pageSponsorship .stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  #pageSalaryProduksi .cat-accordion-header > div[style*="margin-left:auto"],
+  #pageSponsorship .cat-accordion-header > div[style*="margin-left:auto"] {
+    padding-left: 0;
+    font-size: 13px !important;
+  }
+
+  #pageSalaryProduksi .cat-accordion-header,
+  #pageSponsorship .cat-accordion-header {
+    padding: 10px 12px;
+  }
+
+  #pageSalaryProduksi .cat-acc-inner,
+  #pageSponsorship .cat-acc-inner {
+    padding: 0 12px 12px;
+  }
+}
