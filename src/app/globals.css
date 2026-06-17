@@ -1076,3 +1076,102 @@ select.form-input {
     padding: 0 12px 12px;
   }
 }
+
+/* ===== Salary Produksi modal — item rows responsive ===== */
+@media (max-width: 540px) {
+  /* Tighter modal padding on small phones */
+  .modal-body {
+    padding: 16px;
+  }
+
+  .modal-overlay {
+    padding: 12px;
+  }
+
+  /* Product / custom item rows in salary produksi modal */
+  .sp-item-row {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr 28px !important;
+    grid-template-rows: auto auto auto !important;
+    gap: 4px !important;
+  }
+
+  /* Row 1: dropdown or text name — span 2 cols */
+  .sp-item-row .sp-product,
+  .sp-item-row .sp-custom-name {
+    grid-column: 1 / 3;
+    grid-row: 1;
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* Row 2: qty + upah side by side */
+  .sp-item-row .sp-qty {
+    grid-column: 1 / 2;
+    grid-row: 2;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .sp-item-row .sp-upah {
+    grid-column: 2 / 3;
+    grid-row: 2;
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* Row 3: subtotal full width */
+  .sp-item-row .sp-subtotal {
+    grid-column: 1 / 3;
+    grid-row: 3;
+    text-align: left !important;
+    font-size: 12px;
+    padding: 4px 8px;
+  }
+
+  /* Delete button: col 3, row 1 */
+  .sp-item-row > button {
+    grid-column: 3 / 4;
+    grid-row: 1;
+    align-self: center;
+  }
+
+  /* Worker name rows */
+  .sp-worker-row {
+    width: 100%;
+  }
+
+  .sp-worker-row .sp-worker-name {
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* Sponsorship item rows */
+  .spons-item-row {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr 28px !important;
+    grid-template-rows: auto auto !important;
+    gap: 4px !important;
+  }
+
+  .spons-item-row .spons-item-name,
+  .spons-item-row .spons-product-select {
+    grid-column: 1 / 3;
+    grid-row: 1;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .spons-item-row .spons-item-qty {
+    grid-column: 1 / 2;
+    grid-row: 2;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .spons-item-row > button {
+    grid-column: 3 / 4;
+    grid-row: 1;
+    align-self: center;
+  }
+}

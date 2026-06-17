@@ -5257,7 +5257,7 @@ function renderSalaryProduksi() {
       '<div class="cat-accordion" id="salaryProduksiList">' +
       accordionItems +
       "</div>" +
-      '<div class="table-footer">' +
+      '<div class="table-footer" style="margin-top:16px">' +
       "<span>" +
       (list.length > 0
          ? "Menampilkan " +
@@ -5456,7 +5456,7 @@ window.addSalaryProduksiRow = function (itemData) {
    var row = document.createElement("div");
    row.className = "sp-item-row";
    row.style.cssText =
-      "display:grid;grid-template-columns:2fr 72px 110px 100px 30px;gap:6px;align-items:center";
+      "display:grid;grid-template-columns:2fr minmax(56px,72px) minmax(80px,110px) minmax(80px,100px) 28px;gap:4px;align-items:center";
    row.innerHTML =
       '<select class="form-input sp-product" style="font-size:12px;padding:6px 8px" onchange="calcSalaryGrandTotal()">' +
       productOpts +
@@ -5519,7 +5519,7 @@ window.addSalaryProduksiCustomRow = function (itemData) {
    var row = document.createElement("div");
    row.className = "sp-item-row sp-custom-row";
    row.style.cssText =
-      "display:grid;grid-template-columns:2fr 72px 110px 100px 30px;gap:6px;align-items:center";
+      "display:grid;grid-template-columns:2fr minmax(56px,72px) minmax(80px,110px) minmax(80px,100px) 28px;gap:4px;align-items:center";
    row.innerHTML =
       '<input type="text" class="form-input sp-custom-name" value="' +
       (itemName.replace(/"/g, "&quot;")) +
@@ -5917,7 +5917,7 @@ function renderSponsorship() {
       '<div class="cat-accordion" id="sponsorshipList">' +
       accordionItems +
       "</div>" +
-      '<div class="table-footer">' +
+      '<div class="table-footer" style="margin-top:16px">' +
       "<span>" +
       (list.length > 0
          ? "Menampilkan " +
