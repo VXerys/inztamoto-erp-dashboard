@@ -5232,13 +5232,13 @@ function renderSalaryProduksi() {
       '<div class="table-toolbar" style="margin-bottom:14px">' +
       '<div class="table-search">' +
       '<i class="fas fa-search"></i>' +
-      '<input type="text" placeholder="Cari nama pekerja / item..." id="spSearch" value="' + (state.salaryProd.search || "").replace(/"/g, "&quot;") + '">' +
+      '<input type="text" placeholder="Cari nama pekerja / item..." id="spSearch" value="' + (state.salaryProd.search || "").replace(/"/g, "&quot;") + '" oninput="onSpSearch(this.value)">' +
       '</div>' +
       '<div class="table-filter">' +
-      '<select id="spMonthFilter">' + spMonthOpts + '</select>' +
+      '<select id="spMonthFilter" onchange="onSpMonthChange(this.value)">' + spMonthOpts + '</select>' +
       '</div>' +
       '<div class="table-filter">' +
-      '<select id="spYearFilter">' + spYearOpts + '</select>' +
+      '<select id="spYearFilter" onchange="onSpYearChange(this.value)">' + spYearOpts + '</select>' +
       '</div>' +
       '</div>' +
       // --- Period total summary ---
@@ -5274,32 +5274,27 @@ function renderSalaryProduksi() {
       "</div>" +
       "</div>";
 
-   // --- Attach filter listeners ---
-   var spSearchEl = document.getElementById("spSearch");
-   if (spSearchEl) {
-      spSearchEl.addEventListener("input", function (e) {
-         state.salaryProd.search = e.target.value;
-         state.salaryProd.page = 1;
-         renderSalaryProduksi();
-      });
-   }
-   var spMonthEl = document.getElementById("spMonthFilter");
-   if (spMonthEl) {
-      spMonthEl.addEventListener("change", function (e) {
-         state.salaryProd.month = e.target.value;
-         state.salaryProd.page = 1;
-         renderSalaryProduksi();
-      });
-   }
-   var spYearEl = document.getElementById("spYearFilter");
-   if (spYearEl) {
-      spYearEl.addEventListener("change", function (e) {
-         state.salaryProd.year = e.target.value;
-         state.salaryProd.page = 1;
-         renderSalaryProduksi();
-      });
-   }
+   // --- Filter handlers defined as window functions (avoid listener stacking on re-render) ---
 }
+
+window.onSpSearch = function (val) {
+   state.salaryProd.search = val;
+   state.salaryProd.page = 1;
+   renderSalaryProduksi();
+   // Restore focus + cursor to end
+   var el = document.getElementById("spSearch");
+   if (el) { el.focus(); var len = el.value.length; el.setSelectionRange(len, len); }
+};
+window.onSpMonthChange = function (val) {
+   state.salaryProd.month = val;
+   state.salaryProd.page = 1;
+   renderSalaryProduksi();
+};
+window.onSpYearChange = function (val) {
+   state.salaryProd.year = val;
+   state.salaryProd.page = 1;
+   renderSalaryProduksi();
+};
 
 window.goSalaryProduksiPage = function (n) {
    state.salaryProd.page = n;
@@ -5892,13 +5887,13 @@ function renderSponsorship() {
       '<div class="table-toolbar" style="margin-bottom:14px">' +
       '<div class="table-search">' +
       '<i class="fas fa-search"></i>' +
-      '<input type="text" placeholder="Cari event, lokasi, item..." id="sponsSearch" value="' + (state.spons.search || "").replace(/"/g, "&quot;") + '">' +
+      '<input type="text" placeholder="Cari event, lokasi, item..." id="sponsSearch" value="' + (state.spons.search || "").replace(/"/g, "&quot;") + '" oninput="onSponsSearch(this.value)">' +
       '</div>' +
       '<div class="table-filter">' +
-      '<select id="sponsMonthFilter">' + sponsMonthOpts + '</select>' +
+      '<select id="sponsMonthFilter" onchange="onSponsMonthChange(this.value)">' + sponsMonthOpts + '</select>' +
       '</div>' +
       '<div class="table-filter">' +
-      '<select id="sponsYearFilter">' + sponsYearOpts + '</select>' +
+      '<select id="sponsYearFilter" onchange="onSponsYearChange(this.value)">' + sponsYearOpts + '</select>' +
       '</div>' +
       '</div>' +
       // --- Period total summary ---
@@ -5934,32 +5929,26 @@ function renderSponsorship() {
       "</div>" +
       "</div>";
 
-   // --- Attach filter listeners ---
-   var sponsSearchEl = document.getElementById("sponsSearch");
-   if (sponsSearchEl) {
-      sponsSearchEl.addEventListener("input", function (e) {
-         state.spons.search = e.target.value;
-         state.spons.page = 1;
-         renderSponsorship();
-      });
-   }
-   var sponsMonthEl = document.getElementById("sponsMonthFilter");
-   if (sponsMonthEl) {
-      sponsMonthEl.addEventListener("change", function (e) {
-         state.spons.month = e.target.value;
-         state.spons.page = 1;
-         renderSponsorship();
-      });
-   }
-   var sponsYearEl = document.getElementById("sponsYearFilter");
-   if (sponsYearEl) {
-      sponsYearEl.addEventListener("change", function (e) {
-         state.spons.year = e.target.value;
-         state.spons.page = 1;
-         renderSponsorship();
-      });
-   }
+   // --- Filter handlers defined as window functions (avoid listener stacking on re-render) ---
 }
+
+window.onSponsSearch = function (val) {
+   state.spons.search = val;
+   state.spons.page = 1;
+   renderSponsorship();
+   var el = document.getElementById("sponsSearch");
+   if (el) { el.focus(); var len = el.value.length; el.setSelectionRange(len, len); }
+};
+window.onSponsMonthChange = function (val) {
+   state.spons.month = val;
+   state.spons.page = 1;
+   renderSponsorship();
+};
+window.onSponsYearChange = function (val) {
+   state.spons.year = val;
+   state.spons.page = 1;
+   renderSponsorship();
+};
 
 window.goSponsorshipPage = function (n) {
    state.spons.page = n;
