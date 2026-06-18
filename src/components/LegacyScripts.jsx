@@ -52,6 +52,7 @@ export default function LegacyScripts() {
         await loadScript("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js");
         await loadScript("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js");
         await loadScript("https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js");
+        await loadScript("https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js");
         await loadScript("/legacy/app-runtime.js");
       } catch (error) {
         console.error("[Inztamoto Legacy Runtime]", error);
