@@ -176,7 +176,7 @@ const state = {
       page: 1,
       perPage: 8,
    },
-   pp: { search: "", week: "", status: "all", page: 1, perPage: 10 },
+   pp: { search: "", week: "", status: "all", month: "all", page: 1, perPage: 10 },
    payroll: { search: "", period: "", status: "all", page: 1, perPage: 10 },
    salaryProd: { search: "", month: "all", year: "all", page: 1, perPage: 8 },
    spons: { search: "", month: "all", year: "all", page: 1, perPage: 8 },
@@ -4260,10 +4260,18 @@ function weekKeyLabel(wk) {
 }
 
 function getAvailableWeeks() {
+   const { month } = state.pp;
    const weeks = new Set();
-   weeks.add(getWeekKey(today)); // always include current week
+   const currentWeek = getWeekKey(today);
+   if (month === "all" || currentWeek.substring(5, 7) === month) {
+      weeks.add(currentWeek);
+   }
    state.productionPurchases.forEach((p) => {
-      if (p.weekKey) weeks.add(p.weekKey);
+      if (p.weekKey) {
+         if (month === "all" || p.weekKey.substring(5, 7) === month) {
+            weeks.add(p.weekKey);
+         }
+      }
    });
    return [...weeks].sort().reverse();
 }
@@ -4272,7 +4280,7 @@ function renderBelanjaProduksi() {
    const container = $("#pageBelanjaProduksi");
    if (!container) return;
 
-   const { search, week, status, page, perPage } = state.pp;
+   const { search, week, status, month, page, perPage } = state.pp;
    const selectedWeek = week || getWeekKey(today);
 
    let list = [...state.productionPurchases];
@@ -4284,6 +4292,12 @@ function renderBelanjaProduksi() {
             (p.category || "").toLowerCase().includes(q) ||
             (p.note || "").toLowerCase().includes(q),
       );
+   }
+   if (month && month !== "all") {
+      list = list.filter((p) => {
+         if (!p.date) return false;
+         return p.date.substring(5, 7) === month;
+      });
    }
    if (week) list = list.filter((p) => p.weekKey === week);
    if (status !== "all") list = list.filter((p) => p.status === status);
@@ -4297,6 +4311,11 @@ function renderBelanjaProduksi() {
    const start = (state.pp.page - 1) * perPage;
    const items = list.slice(start, start + perPage);
 
+   const monthOpts = MONTH_OPTIONS.map(
+      (m) =>
+         `<option value="${m.value}" ${month === m.value ? "selected" : ""}>${m.label}</option>`,
+   ).join("");
+
    const weekOpts = getAvailableWeeks()
       .map(
          (w) =>
@@ -4308,6 +4327,11 @@ function renderBelanjaProduksi() {
    const toolbar = `
     <div class="table-toolbar">
       <div class="table-search"><i class="fas fa-search"></i><input type="text" id="ppSearch" class="form-input" placeholder="Cari barang..." value="${search}" oninput="onPPSearch(this.value)"></div>
+      <div class="table-filter">
+        <select class="form-input" onchange="onPPMonth(this.value)">
+          <option value="all" ${month === "all" ? "selected" : ""}>Semua Bulan</option>${monthOpts}
+        </select>
+      </div>
       <div class="table-filter">
         <select class="form-input" onchange="onPPWeek(this.value)" style="min-width:130px">
           <option value="">Semua Minggu</option>${weekOpts}
@@ -4389,8 +4413,19 @@ window.onPPSearch = function (val) {
    state.pp.page = 1;
    renderBelanjaProduksi();
 };
+window.onPPMonth = function (val) {
+   state.pp.month = val;
+   if (val !== "all" && state.pp.week && state.pp.week.substring(5, 7) !== val) {
+      state.pp.week = "";
+   }
+   state.pp.page = 1;
+   renderBelanjaProduksi();
+};
 window.onPPWeek = function (val) {
    state.pp.week = val;
+   if (val) {
+      state.pp.month = val.substring(5, 7);
+   }
    state.pp.page = 1;
    renderBelanjaProduksi();
 };
@@ -5224,9 +5259,14 @@ function renderSalaryProduksi() {
       list.length +
       " data tersimpan</p>" +
       "</div>" +
+      '<div style="display:flex;gap:8px">' +
+      '<button class="btn btn-outline btn-sm" onclick="exportSalaryProduksi()">' +
+      '<i class="fas fa-download"></i>Export' +
+      '</button>' +
       '<button class="btn btn-primary btn-sm" onclick="openSalaryProduksiModal()">' +
       '<i class="fas fa-plus"></i>Tambah Data' +
-      "</button>" +
+      '</button>' +
+      '</div>' +
       "</div>" +
       // --- Toolbar: search + filters ---
       '<div class="table-toolbar" style="margin-bottom:14px">' +
@@ -5276,6 +5316,53 @@ function renderSalaryProduksi() {
 
    // --- Filter handlers defined as window functions (avoid listener stacking on re-render) ---
 }
+
+window.exportSalaryProduksi = function () {
+   var list = state.salaryProduksi || [];
+
+   if (state.salaryProd.search) {
+      var q = state.salaryProd.search.toLowerCase();
+      list = list.filter(function (d) {
+         var names = d.workers && d.workers.length > 0 ? d.workers.join(" ") : (d.workerName || "");
+         var itemNames = (d.items || []).map(function (i) { return i.productName || ""; }).join(" ");
+         return names.toLowerCase().indexOf(q) !== -1 || itemNames.toLowerCase().indexOf(q) !== -1;
+      });
+   }
+
+   if (state.salaryProd.month !== "all" || state.salaryProd.year !== "all") {
+      list = list.filter(function (d) {
+         return matchesMonthYear(d.periodDate, state.salaryProd.month, state.salaryProd.year);
+       });
+   }
+
+   if (list.length === 0) {
+      toast("Tidak ada data untuk di-export", "warning");
+      return;
+   }
+
+   var csv = "\uFEFF";
+   csv += "Tanggal,Pekerja,Nama Item / Produk,Qty (pcs),Upah/pcs,Subtotal,Total Gaji\n";
+   list.forEach(function (doc) {
+      var workerNames = doc.workers && doc.workers.length > 0 ? doc.workers.join("; ") : (doc.workerName || "-");
+      var items = doc.items || [];
+      if (items.length === 0) {
+         csv += '"' + (doc.periodDate || "") + '","' + workerNames.replace(/"/g, '""') + '","-",0,0,0,' + (doc.grandTotal || 0) + '\n';
+      } else {
+         items.forEach(function (item, index) {
+            var totalVal = index === 0 ? doc.grandTotal : "";
+            csv += '"' + (doc.periodDate || "") + '","' + workerNames.replace(/"/g, '""') + '","' + (item.productName || "-").replace(/"/g, '""') + '",' + (item.qty || 0) + ',' + (item.upah || 0) + ',' + (item.subtotal || 0) + ',"' + totalVal + '"\n';
+         });
+      }
+   });
+
+   var blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+   var a = document.createElement("a");
+   var dateStr = new Date().toISOString().split("T")[0];
+   a.href = URL.createObjectURL(blob);
+   a.download = "salary_produksi_" + dateStr + ".csv";
+   a.click();
+   toast("Salary Produksi di-export ke CSV", "success");
+};
 
 window.onSpSearch = function (val) {
    state.salaryProd.search = val;
@@ -5879,9 +5966,14 @@ function renderSponsorship() {
       list.length +
       " event tersimpan</p>" +
       "</div>" +
+      '<div style="display:flex;gap:8px">' +
+      '<button class="btn btn-outline btn-sm" onclick="exportSponsorship()">' +
+      '<i class="fas fa-download"></i>Export' +
+      '</button>' +
       '<button class="btn btn-primary btn-sm" onclick="openSponsorshipModal()">' +
       '<i class="fas fa-plus"></i>Tambah Data' +
-      "</button>" +
+      '</button>' +
+      '</div>' +
       "</div>" +
       // --- Toolbar: search + filters ---
       '<div class="table-toolbar" style="margin-bottom:14px">' +
@@ -5928,9 +6020,56 @@ function renderSponsorship() {
       sPag +
       "</div>" +
       "</div>";
-
-   // --- Filter handlers defined as window functions (avoid listener stacking on re-render) ---
 }
+
+window.exportSponsorship = function () {
+   var list = state.sponsorships || [];
+
+   if (state.spons.search) {
+      var q = state.spons.search.toLowerCase();
+      list = list.filter(function (d) {
+         return (d.eventName || "").toLowerCase().indexOf(q) !== -1 ||
+            (d.location || "").toLowerCase().indexOf(q) !== -1 ||
+            (d.supportDetails || "").toLowerCase().indexOf(q) !== -1 ||
+            ((d.supportItems || []).map(function (si) { return si.itemName || ""; }).join(" ")).toLowerCase().indexOf(q) !== -1;
+      });
+   }
+
+   if (state.spons.month !== "all" || state.spons.year !== "all") {
+      list = list.filter(function (d) {
+         return matchesMonthYear(d.eventDate, state.spons.month, state.spons.year);
+      });
+   }
+
+   if (list.length === 0) {
+      toast("Tidak ada data untuk di-export", "warning");
+      return;
+   }
+
+   var csv = "\uFEFF";
+   csv += "Tanggal,Nama Event,Lokasi,Rincian Support,Qty,Catatan/Deskripsi,Perkiraan Biaya\n";
+   list.forEach(function (doc) {
+      var supportItems = doc.supportItems || [];
+      var details = (doc.supportDetails || "").replace(/"/g, '""');
+      if (supportItems.length === 0) {
+         csv += '"' + (doc.eventDate || "") + '","' + (doc.eventName || "").replace(/"/g, '""') + '","' + (doc.location || "").replace(/"/g, '""') + '","-","-","' + details + '",' + (doc.estimatedCost || 0) + '\n';
+      } else {
+         supportItems.forEach(function (item, index) {
+            var costVal = index === 0 ? doc.estimatedCost : "";
+            var detailsVal = index === 0 ? details : "";
+            csv += '"' + (doc.eventDate || "") + '","' + (doc.eventName || "").replace(/"/g, '""') + '","' + (doc.location || "").replace(/"/g, '""') + '","' + (item.itemName || "-").replace(/"/g, '""') + '","' + (item.qty || "") + '","' + detailsVal + '","' + costVal + '"\n';
+         });
+      }
+   });
+
+   var blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+   var a = document.createElement("a");
+   var dateStr = new Date().toISOString().split("T")[0];
+   a.href = URL.createObjectURL(blob);
+   a.download = "sponsorship_" + dateStr + ".csv";
+   a.click();
+   toast("Sponsorship di-export ke CSV", "success");
+};
 
 window.onSponsSearch = function (val) {
    state.spons.search = val;
