@@ -2308,42 +2308,136 @@ $("#prodTable").addEventListener("click", (e) => {
 });
 
 $("#exportProdBtn").addEventListener("click", () => {
-   const h = [
-      "SKU",
-      "Nama",
-      "Kategori",
-      "Harga Modal",
-      "Harga Jual",
-      "Keuntungan",
-      "Margin",
-      "Stok",
-      "Status",
-      "Gambar",
+   if (!state.products || state.products.length === 0) {
+      toast("Tidak ada data produk untuk di-export", "warning");
+      return;
+   }
+
+   // Initialize ExcelJS Workbook
+   const workbook = new ExcelJS.Workbook();
+   const worksheet = workbook.addWorksheet("Produk");
+
+   worksheet.columns = [
+      { header: "SKU", key: "sku", width: 16 },
+      { header: "Nama", key: "name", width: 28 },
+      { header: "Kategori", key: "kategori", width: 20 },
+      { header: "Harga Modal", key: "costPrice", width: 16 },
+      { header: "Harga Jual", key: "sellingPrice", width: 16 },
+      { header: "Keuntungan", key: "profit", width: 16 },
+      { header: "Margin", key: "margin", width: 12 },
+      { header: "Stok", key: "stock", width: 12 },
+      { header: "Status", key: "status", width: 12 },
+      { header: "Gambar", key: "gambar", width: 32 }
    ];
-   const rows = state.products.map((p) => [
-      p.sku,
-      p.name,
-      getCatName(p.categoryId),
-      p.costPrice,
-      p.sellingPrice,
-      p.profit,
-      p.margin + "%",
-      p.stock,
-      p.status,
-      p.images && p.images[0] ? p.images[0].imageUrl : "",
-   ]);
-   let csv =
-      "\uFEFF" +
-      h.join(",") +
-      "\n" +
-      rows.map((r) => r.map((v) => `"${v}"`).join(",")).join("\n");
-   const a = document.createElement("a");
-   a.href = URL.createObjectURL(
-      new Blob([csv], { type: "text/csv;charset=utf-8;" }),
-   );
-   a.download = `produk_${today}.csv`;
-   a.click();
-   toast("Data produk di-export", "success");
+
+   // Style Header Row
+   const headerRow = worksheet.getRow(1);
+   headerRow.height = 26;
+   headerRow.eachCell((cell) => {
+      cell.fill = {
+         type: "pattern",
+         pattern: "solid",
+         fgColor: { argb: "FFF2C94C" } // Yellow color #f2c94c
+      };
+      cell.font = {
+         name: "Arial",
+         size: 10,
+         bold: true
+      };
+      cell.border = {
+         top: { style: "thin" },
+         left: { style: "thin" },
+         bottom: { style: "thin" },
+         right: { style: "thin" }
+      };
+      cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+   });
+
+   let totalStock = 0;
+
+   state.products.forEach((p) => {
+      totalStock += p.stock || 0;
+
+      const row = worksheet.addRow({
+         sku: p.sku || "",
+         name: p.name || "",
+         kategori: getCatName(p.categoryId),
+         costPrice: p.costPrice || 0,
+         sellingPrice: p.sellingPrice || 0,
+         profit: p.profit || 0,
+         margin: (p.margin || 0) / 100, // Excel expects fractional decimal for percentage formatting
+         stock: p.stock || 0,
+         status: p.status || "",
+         gambar: p.images && p.images[0] ? p.images[0].imageUrl : ""
+      });
+
+      row.eachCell((cell, colNumber) => {
+         cell.font = { name: "Arial", size: 10 };
+         cell.border = {
+            top: { style: "thin" },
+            left: { style: "thin" },
+            bottom: { style: "thin" },
+            right: { style: "thin" }
+         };
+
+         if (colNumber === 1 || colNumber === 8 || colNumber === 9) {
+            cell.alignment = { vertical: "middle", horizontal: "center" };
+         } else if (colNumber === 2 || colNumber === 3 || colNumber === 10) {
+            cell.alignment = { vertical: "middle", horizontal: "left" };
+         } else if (colNumber === 4 || colNumber === 5 || colNumber === 6) {
+            cell.alignment = { vertical: "middle", horizontal: "right" };
+            cell.numFmt = "#,##0";
+         } else if (colNumber === 7) {
+            cell.alignment = { vertical: "middle", horizontal: "right" };
+            cell.numFmt = "0%";
+         }
+      });
+   });
+
+   // Add Total Row at the bottom
+   const totalRow = worksheet.addRow({
+      sku: "TOTAL",
+      name: "",
+      kategori: "",
+      costPrice: "",
+      sellingPrice: "",
+      profit: "",
+      margin: "",
+      stock: totalStock,
+      status: "",
+      gambar: ""
+   });
+   totalRow.height = 24;
+   totalRow.eachCell((cell, colNumber) => {
+      cell.font = { name: "Arial", size: 10, bold: true };
+      cell.fill = {
+         type: "pattern",
+         pattern: "solid",
+         fgColor: { argb: "FFFFE57F" } // Light amber accent
+      };
+      cell.border = {
+         top: { style: "double" },
+         bottom: { style: "double" },
+         left: { style: "thin" },
+         right: { style: "thin" }
+      };
+
+      if (colNumber === 8) {
+         cell.alignment = { vertical: "middle", horizontal: "center" };
+         cell.numFmt = "#,##0";
+      } else {
+         cell.alignment = { vertical: "middle", horizontal: "left" };
+      }
+   });
+
+   workbook.xlsx.writeBuffer().then((buffer) => {
+      const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `produk_${today}.xlsx`;
+      a.click();
+      toast("Data produk di-export ke Excel", "success");
+   });
 });
 
 /* --- Product Form --- */
@@ -5313,8 +5407,6 @@ function renderSalaryProduksi() {
       spPag +
       "</div>" +
       "</div>";
-
-   // --- Filter handlers defined as window functions (avoid listener stacking on re-render) ---
 }
 
 window.exportSalaryProduksi = function () {
@@ -5340,28 +5432,162 @@ window.exportSalaryProduksi = function () {
       return;
    }
 
-   var csv = "\uFEFF";
-   csv += "Tanggal,Pekerja,Nama Item / Produk,Qty (pcs),Upah/pcs,Subtotal,Total Gaji\n";
+   // Initialize ExcelJS Workbook
+   var workbook = new ExcelJS.Workbook();
+   var worksheet = workbook.addWorksheet("Salary Produksi");
+
+   worksheet.columns = [
+      { header: "Tgl", key: "tanggal", width: 15 },
+      { header: "Nama", key: "nama", width: 25 },
+      { header: "Item", key: "item", width: 28 },
+      { header: "jumlah Produksi", key: "jumlah", width: 16 },
+      { header: "Harga jahit", key: "harga", width: 16 },
+      { header: "total tukang", key: "total_tukang", width: 16 },
+      { header: "totalminggu", key: "total_minggu", width: 18 }
+   ];
+
+   // Style Header Row
+   var headerRow = worksheet.getRow(1);
+   headerRow.height = 26;
+   headerRow.eachCell(function (cell) {
+      cell.fill = {
+         type: "pattern",
+         pattern: "solid",
+         fgColor: { argb: "FFF2C94C" } // Yellow color #f2c94c
+      };
+      cell.font = {
+         name: "Arial",
+         size: 10,
+         bold: true
+      };
+      cell.border = {
+         top: { style: "thin" },
+         left: { style: "thin" },
+         bottom: { style: "thin" },
+         right: { style: "thin" }
+      };
+      cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+   });
+
+   var totalQty = 0;
+   var totalSubtotal = 0;
+   var totalGrand = 0;
+
+   // Helper styling function
+   function applyRowStyles(row) {
+      row.eachCell(function (cell, colNumber) {
+         cell.font = { name: "Arial", size: 10 };
+         cell.border = {
+            top: { style: "thin" },
+            left: { style: "thin" },
+            bottom: { style: "thin" },
+            right: { style: "thin" }
+         };
+
+         if (colNumber === 1 || colNumber === 2 || colNumber === 3) {
+            cell.alignment = { vertical: "middle", horizontal: "left" };
+         } else if (colNumber === 4) {
+            cell.alignment = { vertical: "middle", horizontal: "center" };
+            cell.numFmt = "#,##0";
+         } else if (colNumber === 5 || colNumber === 6 || colNumber === 7) {
+            cell.alignment = { vertical: "middle", horizontal: "right" };
+            cell.numFmt = "#,##0";
+         }
+      });
+   }
+
    list.forEach(function (doc) {
-      var workerNames = doc.workers && doc.workers.length > 0 ? doc.workers.join("; ") : (doc.workerName || "-");
+      var workerNames = doc.workers && doc.workers.length > 0 ? doc.workers.join(", ") : (doc.workerName || "-");
       var items = doc.items || [];
+      totalGrand += doc.grandTotal || 0;
+
       if (items.length === 0) {
-         csv += '"' + (doc.periodDate || "") + '","' + workerNames.replace(/"/g, '""') + '","-",0,0,0,' + (doc.grandTotal || 0) + '\n';
+         var row = worksheet.addRow({
+            tanggal: doc.periodDate || "",
+            nama: workerNames,
+            item: "-",
+            jumlah: 0,
+            harga: 0,
+            total_tukang: 0,
+            total_minggu: doc.grandTotal || 0
+         });
+         applyRowStyles(row);
       } else {
          items.forEach(function (item, index) {
-            var totalVal = index === 0 ? doc.grandTotal : "";
-            csv += '"' + (doc.periodDate || "") + '","' + workerNames.replace(/"/g, '""') + '","' + (item.productName || "-").replace(/"/g, '""') + '",' + (item.qty || 0) + ',' + (item.upah || 0) + ',' + (item.subtotal || 0) + ',"' + totalVal + '"\n';
+            totalQty += item.qty || 0;
+            totalSubtotal += item.subtotal || 0;
+
+            var rowData = {
+               tanggal: index === 0 ? doc.periodDate || "" : "",
+               nama: index === 0 ? workerNames : "",
+               item: item.productName || "-",
+               jumlah: item.qty || 0,
+               harga: item.upah || 0,
+               total_tukang: item.subtotal || 0,
+               total_minggu: index === 0 ? doc.grandTotal || 0 : ""
+            };
+            var row = worksheet.addRow(rowData);
+            applyRowStyles(row);
+         });
+         // Add separator row
+         var separatorRow = worksheet.addRow({});
+         separatorRow.height = 12;
+         separatorRow.eachCell(function (cell) {
+            cell.border = {
+               top: { style: "thin" },
+               left: { style: "thin" },
+               bottom: { style: "thin" },
+               right: { style: "thin" }
+            };
          });
       }
    });
 
-   var blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-   var a = document.createElement("a");
-   var dateStr = new Date().toISOString().split("T")[0];
-   a.href = URL.createObjectURL(blob);
-   a.download = "salary_produksi_" + dateStr + ".csv";
-   a.click();
-   toast("Salary Produksi di-export ke CSV", "success");
+   // Add Grand Total Row
+   var totalRow = worksheet.addRow({
+      tanggal: "TOTAL",
+      nama: "",
+      item: "",
+      jumlah: totalQty,
+      harga: "",
+      total_tukang: totalSubtotal,
+      total_minggu: totalGrand
+   });
+   totalRow.height = 24;
+   totalRow.eachCell(function (cell, colNumber) {
+      cell.font = { name: "Arial", size: 10, bold: true };
+      cell.fill = {
+         type: "pattern",
+         pattern: "solid",
+         fgColor: { argb: "FFFFE57F" } // Light amber accent
+      };
+      cell.border = {
+         top: { style: "double" },
+         bottom: { style: "double" },
+         left: { style: "thin" },
+         right: { style: "thin" }
+      };
+
+      if (colNumber === 4) {
+         cell.alignment = { vertical: "middle", horizontal: "center" };
+         cell.numFmt = "#,##0";
+      } else if (colNumber === 6 || colNumber === 7) {
+         cell.alignment = { vertical: "middle", horizontal: "right" };
+         cell.numFmt = "#,##0";
+      } else {
+         cell.alignment = { vertical: "middle", horizontal: "left" };
+      }
+   });
+
+   workbook.xlsx.writeBuffer().then(function (buffer) {
+      var blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      var a = document.createElement("a");
+      var dateStr = new Date().toISOString().split("T")[0];
+      a.href = URL.createObjectURL(blob);
+      a.download = "salary_produksi_" + dateStr + ".xlsx";
+      a.click();
+      toast("Salary Produksi di-export ke Excel", "success");
+   });
 };
 
 window.onSpSearch = function (val) {
@@ -6046,29 +6272,153 @@ window.exportSponsorship = function () {
       return;
    }
 
-   var csv = "\uFEFF";
-   csv += "Tanggal,Nama Event,Lokasi,Rincian Support,Qty,Catatan/Deskripsi,Perkiraan Biaya\n";
+   // Initialize ExcelJS Workbook
+   var workbook = new ExcelJS.Workbook();
+   var worksheet = workbook.addWorksheet("Sponsorship");
+
+   worksheet.columns = [
+      { header: "Tanggal", key: "tanggal", width: 15 },
+      { header: "Nama Event", key: "event", width: 28 },
+      { header: "Lokasi", key: "lokasi", width: 20 },
+      { header: "Rincian Support", key: "support", width: 28 },
+      { header: "Qty", key: "qty", width: 16 },
+      { header: "Catatan/Deskripsi", key: "deskripsi", width: 32 },
+      { header: "Perkiraan Biaya", key: "biaya", width: 18 }
+   ];
+
+   // Style Header Row
+   var headerRow = worksheet.getRow(1);
+   headerRow.height = 26;
+   headerRow.eachCell(function (cell) {
+      cell.fill = {
+         type: "pattern",
+         pattern: "solid",
+         fgColor: { argb: "FFF2C94C" } // Yellow color #f2c94c
+      };
+      cell.font = {
+         name: "Arial",
+         size: 10,
+         bold: true
+      };
+      cell.border = {
+         top: { style: "thin" },
+         left: { style: "thin" },
+         bottom: { style: "thin" },
+         right: { style: "thin" }
+      };
+      cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+   });
+
+   var totalCost = 0;
+
+   // Helper styling function
+   function applySponsRowStyles(row) {
+      row.eachCell(function (cell, colNumber) {
+         cell.font = { name: "Arial", size: 10 };
+         cell.border = {
+            top: { style: "thin" },
+            left: { style: "thin" },
+            bottom: { style: "thin" },
+            right: { style: "thin" }
+         };
+
+         if (colNumber <= 3 || colNumber === 4 || colNumber === 6) {
+            cell.alignment = { vertical: "middle", horizontal: "left" };
+         } else if (colNumber === 5) { // Qty
+            cell.alignment = { vertical: "middle", horizontal: "center" };
+         } else if (colNumber === 7) { // Cost
+            cell.alignment = { vertical: "middle", horizontal: "right" };
+            cell.numFmt = "#,##0";
+         }
+      });
+   }
+
    list.forEach(function (doc) {
       var supportItems = doc.supportItems || [];
-      var details = (doc.supportDetails || "").replace(/"/g, '""');
+      var details = doc.supportDetails || "";
+      totalCost += doc.estimatedCost || 0;
+
       if (supportItems.length === 0) {
-         csv += '"' + (doc.eventDate || "") + '","' + (doc.eventName || "").replace(/"/g, '""') + '","' + (doc.location || "").replace(/"/g, '""') + '","-","-","' + details + '",' + (doc.estimatedCost || 0) + '\n';
+         var row = worksheet.addRow({
+            tanggal: doc.eventDate || "",
+            event: doc.eventName || "",
+            lokasi: doc.location || "",
+            support: "-",
+            qty: "-",
+            deskripsi: details,
+            biaya: doc.estimatedCost || 0
+         });
+         applySponsRowStyles(row);
       } else {
          supportItems.forEach(function (item, index) {
-            var costVal = index === 0 ? doc.estimatedCost : "";
-            var detailsVal = index === 0 ? details : "";
-            csv += '"' + (doc.eventDate || "") + '","' + (doc.eventName || "").replace(/"/g, '""') + '","' + (doc.location || "").replace(/"/g, '""') + '","' + (item.itemName || "-").replace(/"/g, '""') + '","' + (item.qty || "") + '","' + detailsVal + '","' + costVal + '"\n';
+            var rowData = {
+               tanggal: index === 0 ? doc.eventDate || "" : "",
+               event: index === 0 ? doc.eventName || "" : "",
+               lokasi: index === 0 ? doc.location || "" : "",
+               support: item.itemName || "-",
+               qty: item.qty || "",
+               deskripsi: index === 0 ? details : "",
+               biaya: index === 0 ? doc.estimatedCost || 0 : ""
+            };
+            var row = worksheet.addRow(rowData);
+            applySponsRowStyles(row);
+         });
+         // Add separator row
+         var separatorRow = worksheet.addRow({});
+         separatorRow.height = 12;
+         separatorRow.eachCell(function (cell) {
+            cell.border = {
+               top: { style: "thin" },
+               left: { style: "thin" },
+               bottom: { style: "thin" },
+               right: { style: "thin" }
+            };
          });
       }
    });
 
-   var blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-   var a = document.createElement("a");
-   var dateStr = new Date().toISOString().split("T")[0];
-   a.href = URL.createObjectURL(blob);
-   a.download = "sponsorship_" + dateStr + ".csv";
-   a.click();
-   toast("Sponsorship di-export ke CSV", "success");
+   // Add Grand Total Row
+   var totalRow = worksheet.addRow({
+      tanggal: "TOTAL BIAYA",
+      event: "",
+      lokasi: "",
+      support: "",
+      qty: "",
+      deskripsi: "",
+      biaya: totalCost
+   });
+   totalRow.height = 24;
+   totalRow.eachCell(function (cell, colNumber) {
+      cell.font = { name: "Arial", size: 10, bold: true };
+      cell.fill = {
+         type: "pattern",
+         pattern: "solid",
+         fgColor: { argb: "FFFFE57F" } // Light amber accent
+      };
+      cell.border = {
+         top: { style: "double" },
+         bottom: { style: "double" },
+         left: { style: "thin" },
+         right: { style: "thin" }
+      };
+
+      if (colNumber === 7) {
+         cell.alignment = { vertical: "middle", horizontal: "right" };
+         cell.numFmt = "#,##0";
+      } else {
+         cell.alignment = { vertical: "middle", horizontal: "left" };
+      }
+   });
+
+   workbook.xlsx.writeBuffer().then(function (buffer) {
+      var blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      var a = document.createElement("a");
+      var dateStr = new Date().toISOString().split("T")[0];
+      a.href = URL.createObjectURL(blob);
+      a.download = "sponsorship_" + dateStr + ".xlsx";
+      a.click();
+      toast("Sponsorship di-export ke Excel", "success");
+   });
 };
 
 window.onSponsSearch = function (val) {
