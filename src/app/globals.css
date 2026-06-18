@@ -1169,6 +1169,13 @@ select.form-input {
     min-width: 0;
   }
 
+  .spons-item-row .spons-item-nominal {
+    grid-column: 2 / 3;
+    grid-row: 2;
+    width: 100%;
+    min-width: 0;
+  }
+
   .spons-item-row > button {
     grid-column: 3 / 4;
     grid-row: 1;

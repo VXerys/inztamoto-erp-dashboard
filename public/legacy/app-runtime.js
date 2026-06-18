@@ -6113,10 +6113,18 @@ function renderSponsorship() {
                  (doc.supportItems && doc.supportItems.length > 0
                     ? '<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">' +
                       doc.supportItems.map(function (si) {
-                         return '<div style="font-size:13px;line-height:1.6"><i class="fas fa-box" style="color:var(--primary);margin-right:6px;font-size:11px"></i><strong>' +
-                            (si.itemName || "-") + '</strong>' +
-                            (si.qty ? ' — <span style="color:var(--text-muted)">' + si.qty + '</span>' : '') +
-                            '</div>';
+                         var qtyVal = parseFloat(si.qty) || 0;
+                         var nominalVal = parseFloat(si.nominal) || 0;
+                         var itemText = '<div style="font-size:13px;line-height:1.6"><i class="fas fa-box" style="color:var(--primary);margin-right:6px;font-size:11px"></i><strong>' +
+                            (si.itemName || "-") + '</strong>';
+                         if (qtyVal > 0 && nominalVal > 0) {
+                            var subtotal = qtyVal * nominalVal;
+                            itemText += ' — <span style="color:var(--text-muted)">' + qtyVal + ' x ' + fmtRp(nominalVal) + ' = ' + fmtRp(subtotal) + '</span>';
+                         } else if (si.qty) {
+                            itemText += ' — <span style="color:var(--text-muted)">' + si.qty + '</span>';
+                         }
+                         itemText += '</div>';
+                         return itemText;
                       }).join("") +
                       "</div>"
                     : "") +
@@ -6281,7 +6289,9 @@ window.exportSponsorship = function () {
       { header: "Nama Event", key: "event", width: 28 },
       { header: "Lokasi", key: "lokasi", width: 20 },
       { header: "Rincian Support", key: "support", width: 28 },
-      { header: "Qty", key: "qty", width: 16 },
+      { header: "Qty", key: "qty", width: 12 },
+      { header: "Nominal", key: "nominal", width: 16 },
+      { header: "Subtotal", key: "subtotal", width: 18 },
       { header: "Catatan/Deskripsi", key: "deskripsi", width: 32 },
       { header: "Perkiraan Biaya", key: "biaya", width: 18 }
    ];
@@ -6322,13 +6332,13 @@ window.exportSponsorship = function () {
             right: { style: "thin" }
          };
 
-         if (colNumber <= 3 || colNumber === 4 || colNumber === 6) {
-            cell.alignment = { vertical: "middle", horizontal: "left" };
-         } else if (colNumber === 5) { // Qty
+         if (colNumber === 5) { // Qty
             cell.alignment = { vertical: "middle", horizontal: "center" };
-         } else if (colNumber === 7) { // Cost
+         } else if (colNumber === 6 || colNumber === 7 || colNumber === 9) { // Nominal, Subtotal, Cost
             cell.alignment = { vertical: "middle", horizontal: "right" };
             cell.numFmt = "#,##0";
+         } else {
+            cell.alignment = { vertical: "middle", horizontal: "left" };
          }
       });
    }
@@ -6345,18 +6355,26 @@ window.exportSponsorship = function () {
             lokasi: doc.location || "",
             support: "-",
             qty: "-",
+            nominal: "",
+            subtotal: "",
             deskripsi: details,
             biaya: doc.estimatedCost || 0
          });
          applySponsRowStyles(row);
       } else {
          supportItems.forEach(function (item, index) {
+            var qtyVal = parseFloat(item.qty) || 0;
+            var nominalVal = parseFloat(item.nominal) || 0;
+            var subtotalVal = qtyVal * nominalVal;
+
             var rowData = {
                tanggal: index === 0 ? doc.eventDate || "" : "",
                event: index === 0 ? doc.eventName || "" : "",
                lokasi: index === 0 ? doc.location || "" : "",
                support: item.itemName || "-",
                qty: item.qty || "",
+               nominal: nominalVal || "",
+               subtotal: subtotalVal || "",
                deskripsi: index === 0 ? details : "",
                biaya: index === 0 ? doc.estimatedCost || 0 : ""
             };
@@ -6384,6 +6402,8 @@ window.exportSponsorship = function () {
       lokasi: "",
       support: "",
       qty: "",
+      nominal: "",
+      subtotal: "",
       deskripsi: "",
       biaya: totalCost
    });
@@ -6402,7 +6422,7 @@ window.exportSponsorship = function () {
          right: { style: "thin" }
       };
 
-      if (colNumber === 7) {
+      if (colNumber === 9) {
          cell.alignment = { vertical: "middle", horizontal: "right" };
          cell.numFmt = "#,##0";
       } else {
@@ -6562,6 +6582,24 @@ window.openSponsorshipModal = async function (docId) {
 };
 
 // ---- Tambah baris item produk (dari dropdown produk) ----
+// ---- Hitung Otomatis Perkiraan Biaya Sponsorship ----
+window.calcSponsEstimatedCost = function () {
+   var total = 0;
+   var rows = document.querySelectorAll("#sponsSupportItems .spons-item-row");
+   rows.forEach(function (row) {
+      var qtyEl = row.querySelector(".spons-item-qty");
+      var nominalEl = row.querySelector(".spons-item-nominal");
+      var qty = qtyEl ? parseFloat(qtyEl.value) || 0 : 0;
+      var nominal = nominalEl ? parseFloat(nominalEl.value) || 0 : 0;
+      total += qty * nominal;
+   });
+   var costEl = document.getElementById("fSponsEstimatedCost");
+   if (costEl) {
+      costEl.value = total > 0 ? fmt(total) : "";
+   }
+};
+
+// ---- Tambah baris item produk (dari dropdown produk) ----
 window.addSponsorshipProductRow = function (itemData) {
    var container = document.getElementById("sponsSupportItems");
    if (!container) return;
@@ -6575,26 +6613,27 @@ window.addSponsorshipProductRow = function (itemData) {
          (p.name || "-") + " (" + (p.sku || "") + ")</option>";
    });
 
-   var qty = itemData ? itemData.qty || "" : "";
+   var qty = itemData ? parseFloat(itemData.qty) || 1 : 1;
+   var nominal = itemData ? parseFloat(itemData.nominal) || 0 : 0;
 
    var row = document.createElement("div");
    row.className = "spons-item-row spons-product-row";
-   row.style.cssText = "display:grid;grid-template-columns:2fr 1fr 28px;gap:6px;align-items:center";
+   row.style.cssText = "display:grid;grid-template-columns:2fr 70px 100px 28px;gap:6px;align-items:center";
    row.innerHTML =
-      '<select class="form-input spons-product-select" style="font-size:12px;padding:6px 8px">' +
+      '<select class="form-input spons-product-select" style="font-size:12px;padding:6px 8px" onchange="calcSponsEstimatedCost()">' +
       productOpts +
       "</select>" +
-      '<input type="text" class="form-input spons-item-qty" value="' +
-      (String(qty).replace(/"/g, "&quot;")) +
-      '" placeholder="Qty (misal: 2 pcs)" style="font-size:12px;padding:6px 8px">' +
+      '<input type="number" class="form-input spons-item-qty" value="' + qty + '" min="1" placeholder="Qty" style="font-size:12px;padding:6px 8px;text-align:center" oninput="calcSponsEstimatedCost()">' +
+      '<input type="number" class="form-input spons-item-nominal" value="' + nominal + '" min="0" placeholder="Nominal" style="font-size:12px;padding:6px 8px" oninput="calcSponsEstimatedCost()">' +
       '<button type="button" title="Hapus"' +
-      " onclick=\"this.closest('.spons-item-row').remove()\"" +
+      " onclick=\"this.closest('.spons-item-row').remove(); calcSponsEstimatedCost();\"" +
       ' style="width:28px;height:28px;border:none;background:var(--danger);color:#fff;' +
       "border-radius:var(--radius-sm);cursor:pointer;font-size:13px;" +
       'display:flex;align-items:center;justify-content:center;flex-shrink:0">' +
       '<i class="fas fa-xmark"></i>' +
       "</button>";
    container.appendChild(row);
+   calcSponsEstimatedCost();
 };
 
 // ---- Tambah baris item manual (text input) ----
@@ -6603,26 +6642,25 @@ window.addSponsorshipItemRow = function (itemData) {
    if (!container) return;
 
    var itemName = itemData ? itemData.itemName || "" : "";
-   var qty = itemData ? itemData.qty || "" : "";
+   var qty = itemData ? parseFloat(itemData.qty) || 1 : 1;
+   var nominal = itemData ? parseFloat(itemData.nominal) || 0 : 0;
 
    var row = document.createElement("div");
    row.className = "spons-item-row spons-manual-row";
-   row.style.cssText = "display:grid;grid-template-columns:2fr 1fr 28px;gap:6px;align-items:center";
+   row.style.cssText = "display:grid;grid-template-columns:2fr 70px 100px 28px;gap:6px;align-items:center";
    row.innerHTML =
-      '<input type="text" class="form-input spons-item-name" value="' +
-      (itemName.replace(/"/g, "&quot;")) +
-      '" placeholder="Nama item (misal: Uang Tunai)" style="font-size:12px;padding:6px 8px">' +
-      '<input type="text" class="form-input spons-item-qty" value="' +
-      (String(qty).replace(/"/g, "&quot;")) +
-      '" placeholder="Qty (misal: 2 pcs)" style="font-size:12px;padding:6px 8px">' +
+      '<input type="text" class="form-input spons-item-name" value="' + (itemName.replace(/"/g, "&quot;")) + '" placeholder="Nama item (manual)" style="font-size:12px;padding:6px 8px">' +
+      '<input type="number" class="form-input spons-item-qty" value="' + qty + '" min="1" placeholder="Qty" style="font-size:12px;padding:6px 8px;text-align:center" oninput="calcSponsEstimatedCost()">' +
+      '<input type="number" class="form-input spons-item-nominal" value="' + nominal + '" min="0" placeholder="Nominal" style="font-size:12px;padding:6px 8px" oninput="calcSponsEstimatedCost()">' +
       '<button type="button" title="Hapus"' +
-      " onclick=\"this.closest('.spons-item-row').remove()\"" +
+      " onclick=\"this.closest('.spons-item-row').remove(); calcSponsEstimatedCost();\"" +
       ' style="width:28px;height:28px;border:none;background:var(--danger);color:#fff;' +
       "border-radius:var(--radius-sm);cursor:pointer;font-size:13px;" +
       'display:flex;align-items:center;justify-content:center;flex-shrink:0">' +
       '<i class="fas fa-xmark"></i>' +
       "</button>";
    container.appendChild(row);
+   calcSponsEstimatedCost();
 };
 
 // ---- Simpan (Tambah / Update) ----
@@ -6644,6 +6682,8 @@ window.saveSponsorship = async function (docId) {
       var isProduct = row.classList.contains("spons-product-row");
       var qtyInput = row.querySelector(".spons-item-qty");
       var qty = qtyInput ? qtyInput.value.trim() : "";
+      var nominalInput = row.querySelector(".spons-item-nominal");
+      var nominal = nominalInput ? parseFloat(nominalInput.value) || 0 : 0;
 
       if (isProduct) {
          var selectEl = row.querySelector(".spons-product-select");
@@ -6651,13 +6691,13 @@ window.saveSponsorship = async function (docId) {
          var selectedOpt = selectEl ? selectEl.options[selectEl.selectedIndex] : null;
          var productName = selectedOpt ? selectedOpt.dataset.name || selectedOpt.text : "";
          if (productId || productName) {
-            supportItems.push(sanitize({ type: "product", productId: productId, itemName: productName, qty: qty }));
+            supportItems.push(sanitize({ type: "product", productId: productId, itemName: productName, qty: qty, nominal: nominal }));
          }
       } else {
          var nameInput = row.querySelector(".spons-item-name");
          var itemName = nameInput ? nameInput.value.trim() : "";
          if (itemName) {
-            supportItems.push(sanitize({ type: "manual", itemName: itemName, qty: qty }));
+            supportItems.push(sanitize({ type: "manual", itemName: itemName, qty: qty, nominal: nominal }));
          }
       }
    });
