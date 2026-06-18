@@ -249,7 +249,7 @@ select.form-input {
 /* ===== SIDEBAR ===== */
 .sidebar {
   position: fixed; left: 0; top: 0; bottom: 0; width: var(--sidebar-w);
-  background: rgba(255, 255, 255, 0.75);
+  background: rgba(253, 253, 150, 0.65);
   backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
   z-index: 100; display: flex; flex-direction: column; transition: transform .3s ease;
   border-right: 1px solid var(--glass-border);
@@ -281,7 +281,7 @@ select.form-input {
 }
 .nav-item:hover i { color: #D97706; }
 .nav-item.active {
-  color: #FCD34D;
+  color: #FDFD96;
   background: #1A1A1A;
   font-weight: 600;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
@@ -289,7 +289,7 @@ select.form-input {
   border-radius: 8px;
 }
 .nav-item.active i {
-  color: #FCD34D;
+  color: #FDFD96;
 }
 .nav-item .badge-dot {
   width: 8px; height: 8px; background: #DC2626;
@@ -308,7 +308,7 @@ select.form-input {
   width: 36px; height: 36px;
   background: #1A1A1A;
   border-radius: 8px; display: flex; align-items: center; justify-content: center;
-  color: #FCD34D; font-weight: 800; font-size: 14px; flex-shrink: 0;
+  color: #FDFD96; font-weight: 800; font-size: 14px; flex-shrink: 0;
 }
 .sidebar-user .u-info { flex: 1; min-width: 0 }
 .sidebar-user .u-info .name {
