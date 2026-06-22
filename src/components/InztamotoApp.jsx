@@ -193,6 +193,9 @@ export default function InztamotoApp() {
                   <a href="#" className="nav-item" data-page="kategori">
                      <i className="fas fa-tags"></i>Kategori
                   </a>
+                  <a href="#" className="nav-item" data-page="reseller" id="menuReseller">
+                     <i className="fas fa-user-tag"></i>Reseller
+                  </a>
                   <a href="#" className="nav-item" data-page="produksi">
                      <i className="fas fa-industry"></i>Produksi
                   </a>
@@ -693,6 +696,11 @@ export default function InztamotoApp() {
                      {/* Rendered dynamically by renderSponsorship() in app-runtime.js */}
                   </div>
 
+                  {/* Reseller Management */}
+                  <div className="page" id="pageReseller">
+                     {/* Rendered dynamically by renderResellers() in app-runtime.js */}
+                  </div>
+
                   {/* Inventaris */}
                   <div className="page" id="pageInventaris">
                      <div
@@ -788,7 +796,14 @@ export default function InztamotoApp() {
                         >
                            <i className="fas fa-plus"></i>Catat Penjualan
                         </button>
+                        <button
+                           className="btn btn-outline btn-sm"
+                           id="exportSaleBtn"
+                        >
+                           <i className="fas fa-download"></i>Export Excel
+                        </button>
                      </div>
+                     <div id="resellerAnalyticsContainer" style={{ display: "none", marginBottom: "18px" }}></div>
                      <div className="card">
                         <div className="table-toolbar">
                            <div className="table-search">
@@ -809,6 +824,11 @@ export default function InztamotoApp() {
                                  <option value="Offline Store">
                                     Offline Store
                                  </option>
+                              </select>
+                           </div>
+                           <div className="table-filter" id="saleResellerFilterGroup" style={{ display: "none" }}>
+                              <select id="saleResellerFilter">
+                                 <option value="all">Semua Reseller</option>
                               </select>
                            </div>
                            {/* Phase 6.2 — period filters (options populated by populateSalePeriodFilters()) */}

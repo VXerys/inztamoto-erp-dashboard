@@ -151,6 +151,7 @@ const state = {
    payrolls: [],
    salaryProduksi: [],
    sponsorships: [],
+   resellers: [],
    users: [],
    currentPage: "dashboard",
    prod: {
@@ -173,8 +174,14 @@ const state = {
       channel: "all",
       month: "all",
       year: "all",
+      resellerId: "all",
       page: 1,
       perPage: 8,
+   },
+   reseller: {
+      search: "",
+      page: 1,
+      perPage: 10,
    },
    pp: { search: "", week: "", status: "all", month: "all", page: 1, perPage: 10 },
    payroll: { search: "", period: "", status: "all", page: 1, perPage: 10 },
@@ -651,6 +658,9 @@ function updateNavigationAccess() {
    const sponsorshipMenu = $("#menuSponsorship");
    if (sponsorshipMenu)
       sponsorshipMenu.style.display = isOwnerOrAdmin ? "" : "none";
+   const resellerMenu = $("#menuReseller");
+   if (resellerMenu)
+      resellerMenu.style.display = isOwnerOrAdmin ? "" : "none";
 }
 
 /* =========================================================
@@ -818,6 +828,19 @@ function initFirebaseListeners() {
    );
    state.listeners.push(unsubUsers);
 
+   const unsubReseller = db
+      .collection("resellers")
+      .orderBy("name", "asc")
+      .onSnapshot(
+         (snap) => {
+            state.resellers = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+            if (state.currentPage === "reseller") renderResellers();
+            populateResellerFilters();
+         },
+         (err) => console.error("Resellers listener error:", err)
+      );
+   state.listeners.push(unsubReseller);
+
    seedIfEmpty();
 }
 
@@ -852,6 +875,9 @@ function renderCurrentPage() {
          break;
       case "sponsorship":
          renderSponsorship();
+         break;
+      case "reseller":
+         renderResellers();
          break;
    }
 }
@@ -934,6 +960,7 @@ const TITLES = {
    gajiKaryawan: "Gaji Karyawan",
    salaryProduksi: "Salary Produksi",
    sponsorship: "Support Sponsorship",
+   reseller: "Reseller Management",
 };
 
 function navigateTo(page) {
@@ -959,6 +986,15 @@ function navigateTo(page) {
       toast("Akses Support Sponsorship hanya untuk Owner atau Admin", "error");
       page = "dashboard";
    }
+   const _roleForReseller = getCurrentUserRole();
+   if (
+      page === "reseller" &&
+      _roleForReseller !== "owner" &&
+      _roleForReseller !== "admin"
+   ) {
+      toast("Akses Reseller Management hanya untuk Owner atau Admin", "error");
+      page = "dashboard";
+   }
    updateNavigationAccess();
    state.currentPage = page;
    $$(".page").forEach((p) => p.classList.remove("active"));
@@ -971,6 +1007,7 @@ function navigateTo(page) {
    renderCurrentPage();
    if (page === "kategori") renderCategories();
    if (page === "pengguna") renderUsers();
+   if (page === "reseller") renderResellers();
    $("#sidebar").classList.remove("open");
    $("#sidebarOverlay").classList.remove("show");
 }
@@ -3773,6 +3810,15 @@ window.doEditStockMovement = async function (id) {
    PENJUALAN
    ========================================================= */
 function renderSales() {
+   const resellerGroup = $("#saleResellerFilterGroup");
+   if (resellerGroup) {
+      if (state.sale.channel === "Reseller") {
+         resellerGroup.style.display = "block";
+      } else {
+         resellerGroup.style.display = "none";
+      }
+   }
+
    let list = [...state.sales].sort((a, b) =>
       (b.date || "").localeCompare(a.date || ""),
    );
@@ -3786,13 +3832,18 @@ function renderSales() {
             (normalizeChannelValue(s.channel) || "")
                .toLowerCase()
                .includes(q) ||
+            (s.resellerName || "").toLowerCase().includes(q) ||
             (s.city || "").toLowerCase().includes(q) ||
             (s.district || "").toLowerCase().includes(q) ||
             (s.expedition || "").toLowerCase().includes(q),
       );
    }
-   if (state.sale.channel !== "all")
+   if (state.sale.channel !== "all") {
       list = list.filter((s) => isChannelMatch(s.channel, state.sale.channel));
+      if (state.sale.channel === "Reseller" && state.sale.resellerId !== "all") {
+         list = list.filter((s) => s.resellerId === state.sale.resellerId);
+      }
+   }
    // Phase 6.2 — month/year filter
    if (state.sale.month !== "all" || state.sale.year !== "all")
       list = list.filter((s) =>
@@ -3817,13 +3868,18 @@ function renderSales() {
                  s.realProfit !== undefined ? s.realProfit : s.profit || 0;
               const addressStr =
                  [s.district, s.city].filter(Boolean).join(", ") || "-";
+              const normalizedCh = normalizeChannelValue(s.channel || "");
+              let chBadgeHtml = channelBadge(s.channel || "");
+              if (normalizedCh === "Reseller" && s.resellerName) {
+                 chBadgeHtml += `<br><small style="color:var(--text-muted);font-weight:500;margin-top:2px;display:inline-block">${s.resellerName}</small>`;
+              }
               return `<tr>
       <td>${prodImg(p, 32)}</td>
       <td><strong style="color:var(--primary-dark)">${s.txNumber}</strong></td>
       <td>${s.date}</td>
       <td>${s.productName}<br><small style="color:var(--text-muted)">${s.sku}</small></td>
       <td>${s.quantity}</td>
-      <td>${channelBadge(s.channel || "")}</td>
+      <td>${chBadgeHtml}</td>
       <td>${s.expedition ? expeditionBadge(s.expedition) : '<span style="color:var(--text-muted);font-size:12px">—</span>'}</td>
       <td style="font-size:12px;color:var(--text-muted)">${addressStr}</td>
       <td style="font-weight:600">${fmtRp(displayRevenue)}</td>
@@ -3832,7 +3888,9 @@ function renderSales() {
     </tr>`;
            })
            .join("")
-      : `<tr><td colspan="11"><div class="empty-state"><i class="fas fa-receipt"></i><h4>Belum ada data penjualan</h4></div></td></tr>`;
+      : state.sales.length === 0
+         ? `<tr><td colspan="11"><div class="empty-state"><i class="fas fa-receipt"></i><h4>Belum ada data penjualan</h4></div></td></tr>`
+         : `<tr><td colspan="11"><div class="empty-state"><i class="fas fa-search"></i><h4>Tidak ada transaksi ditemukan</h4><p>Coba ubah filter atau kata kunci pencarian.</p></div></td></tr>`;
 
    const end = Math.min(start + perPage, list.length);
    $("#saleInfo").textContent =
@@ -3844,6 +3902,7 @@ function renderSales() {
       pag += `<button class="${i === state.sale.page ? "active" : ""}" onclick="goSalePage(${i})">${i}</button>`;
    pag += `<button ${state.sale.page >= total ? "disabled" : ""} onclick="goSalePage(${state.sale.page + 1})"><i class="fas fa-chevron-right"></i></button>`;
    $("#salePag").innerHTML = pag;
+   renderResellerAnalytics(list);
 }
 
 window.goSalePage = function (n) {
@@ -3862,8 +3921,27 @@ $("#saleSearch").addEventListener("input", (e) => {
 $("#saleChannelFilter").addEventListener("change", (e) => {
    state.sale.channel = e.target.value;
    state.sale.page = 1;
+   const resellerGroup = $("#saleResellerFilterGroup");
+   if (resellerGroup) {
+      if (e.target.value === "Reseller") {
+         resellerGroup.style.display = "block";
+         populateResellerFilters();
+      } else {
+         resellerGroup.style.display = "none";
+         state.sale.resellerId = "all";
+         const filterSelect = $("#saleResellerFilter");
+         if (filterSelect) filterSelect.value = "all";
+      }
+   }
    renderSales();
 });
+if ($("#saleResellerFilter")) {
+   $("#saleResellerFilter").addEventListener("change", (e) => {
+      state.sale.resellerId = e.target.value;
+      state.sale.page = 1;
+      renderSales();
+   });
+}
 // Phase 6.2 — period filter listeners (elements added in InztamotoApp.jsx)
 $("#saleMonthFilter").addEventListener("change", (e) => {
    state.sale.month = e.target.value;
@@ -3896,7 +3974,13 @@ $("#addSaleBtn").addEventListener("click", () => {
     <div class="form-group"><label>Produk</label><select class="form-input" id="fSaleProd" onchange="updateSaleForm()">${opts}</select></div>
     <div class="form-row">
       <div class="form-group"><label>Jumlah</label><input type="number" class="form-input" id="fSaleQty" value="1" min="1" oninput="updateSaleForm()"></div>
-      <div class="form-group"><label>Channel</label><select class="form-input" id="fSaleChannel">${chOpts}</select></div>
+      <div class="form-group"><label>Channel</label><select class="form-input" id="fSaleChannel" onchange="toggleResellerDropdown(false)">${chOpts}</select></div>
+    </div>
+    <div class="form-group" id="fSaleResellerGroup" style="display:none">
+      <label>Reseller <span style="color:red">*</span></label>
+      <select class="form-input" id="fSaleReseller">
+        <option value="">— Pilih Reseller —</option>
+      </select>
     </div>
     <div class="form-row">
       <div class="form-group"><label>Harga Default <small style="color:var(--text-muted);font-weight:400">(per unit)</small></label><input type="text" class="form-input" id="fSaleDefaultPrice" readonly style="background:var(--primary-light)"></div>
@@ -4015,14 +4099,20 @@ window.editSalesOrder = async function (docId) {
       <div class="form-group"><label>Produk</label><select class="form-input" id="fEditSaleProd" onchange="updateEditSaleForm()">${productOpts}</select></div>
       <div class="form-row">
         <div class="form-group"><label>Jumlah</label><input type="number" class="form-input" id="fEditSaleQty" value="${oldQty}" min="1" oninput="updateEditSaleForm()"></div>
-        <div class="form-group"><label>Channel</label><select class="form-input" id="fEditSaleChannel">${chOpts}</select></div>
+        <div class="form-group"><label>Channel</label><select class="form-input" id="fEditSaleChannel" onchange="toggleResellerDropdown(true)">${chOpts}</select></div>
+      </div>
+      <div class="form-group" id="fEditSaleResellerGroup" style="display:none">
+        <label>Reseller <span style="color:red">*</span></label>
+        <select class="form-input" id="fEditSaleReseller">
+          <option value="">— Pilih Reseller —</option>
+        </select>
       </div>
       <div class="form-row">
         <div class="form-group"><label>Harga Default <small style="color:var(--text-muted);font-weight:400">(per unit)</small></label><input type="text" class="form-input" id="fEditSaleDefaultPrice" readonly style="background:var(--primary-light)"></div>
         <div class="form-group"><label>Harga Real <small style="color:var(--text-muted);font-weight:400">(per unit)</small></label><input type="number" class="form-input" id="fEditSaleRealPrice" value="${oldRealUnitPrice}" min="0" oninput="updateEditSaleForm()"></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>Ekspedisi</label><select class="form-input" id="fEditSaleExpedition"><option value="">â€” Pilih Ekspedisi â€”</option>${expOpts}</select></div>
+        <div class="form-group"><label>Ekspedisi</label><select class="form-input" id="fEditSaleExpedition"><option value="">— Pilih Ekspedisi —</option>${expOpts}</select></div>
         <div class="form-group"><label>Tanggal</label><input type="date" class="form-input" id="fEditSaleDate" value="${attr(sale.date || today)}"></div>
       </div>
       <div class="form-row">
@@ -4040,7 +4130,10 @@ window.editSalesOrder = async function (docId) {
     `,
          `<button class="btn btn-outline btn-sm" onclick="closeModal()">Batal</button><button class="btn btn-primary btn-sm" onclick="saveEditSalesOrder('${docId}')"><i class="fas fa-check"></i>Update</button>`,
       );
-      setTimeout(updateEditSaleForm, 50);
+      setTimeout(function () {
+         toggleResellerDropdown(true, sale.resellerId);
+         updateEditSaleForm();
+      }, 50);
    } catch (err) {
       toast("Gagal membuka edit penjualan: " + err.message, "error");
    }
@@ -4150,6 +4243,19 @@ window.saveEditSalesOrder = async function (docId) {
       const margin =
          realRevenue > 0 ? Math.round((realProfit / realRevenue) * 100) : 0;
 
+      const channel = $("#fEditSaleChannel").value;
+      let resellerId = "";
+      let resellerName = "";
+      if (channel === "Reseller") {
+         resellerId = $("#fEditSaleReseller").value;
+         if (!resellerId) {
+            toast("Pilih reseller", "warning");
+            return;
+         }
+         const resellerObj = state.resellers.find((r) => r.id === resellerId);
+         resellerName = resellerObj ? resellerObj.name : "";
+      }
+
       batch.update(
          saleRef,
          sanitize({
@@ -4168,7 +4274,9 @@ window.saveEditSalesOrder = async function (docId) {
             profit: realProfit,
             margin,
             marketplaceDifference: realRevenue - standardRevenue,
-            channel: $("#fEditSaleChannel").value,
+            channel,
+            resellerId,
+            resellerName,
             expedition:
                ($("#fEditSaleExpedition")
                   ? $("#fEditSaleExpedition").value
@@ -4227,6 +4335,17 @@ window.saveSale = async function () {
    const marketplaceDifference = realRevenue - standardRevenue;
 
    const channel = $("#fSaleChannel").value;
+   let resellerId = "";
+   let resellerName = "";
+   if (channel === "Reseller") {
+      resellerId = $("#fSaleReseller").value;
+      if (!resellerId) {
+         toast("Pilih reseller", "warning");
+         return;
+      }
+      const resellerObj = state.resellers.find((r) => r.id === resellerId);
+      resellerName = resellerObj ? resellerObj.name : "";
+   }
    const expedition =
       ($("#fSaleExpedition") ? $("#fSaleExpedition").value : "") || "";
    const district = (
@@ -4273,6 +4392,8 @@ window.saveSale = async function () {
          profit: realProfit, // compat: use realProfit for new sales
          marketplaceDifference: marketplaceDifference,
          channel: channel,
+         resellerId: resellerId,
+         resellerName: resellerName,
          expedition: expedition,
          district: district,
          city: city,
@@ -4440,6 +4561,7 @@ function renderBelanjaProduksi() {
       </div>
       <div class="responsive-action-group" style="margin-left:auto;display:flex;gap:8px;align-items:center">
         <span style="font-size:13px;color:var(--text-muted)">Total ${weekKeyLabel(selectedWeek)}: <strong style="color:var(--text)">${fmtRp(weeklyTotal)}</strong></span>
+        <button class="btn btn-outline btn-sm" onclick="exportBelanjaProduksi()"><i class="fas fa-download"></i>Export</button>
         <button class="btn btn-outline btn-sm" onclick="closeWeek('${selectedWeek}')"><i class="fas fa-lock"></i>Tutup Minggu</button>
         <button class="btn btn-primary btn-sm" onclick="openAddPurchaseModal()"><i class="fas fa-plus"></i>Tambah Belanja</button>
       </div>
@@ -4531,6 +4653,176 @@ window.onPPStatus = function (val) {
 window.goPPPage = function (n) {
    state.pp.page = n;
    renderBelanjaProduksi();
+};
+
+window.exportBelanjaProduksi = function () {
+   var list = [...(state.productionPurchases || [])];
+
+   // Filter following active states: search, month, week, status
+   if (state.pp.search) {
+      var q = state.pp.search.toLowerCase();
+      list = list.filter(function (p) {
+         return (p.itemName || "").toLowerCase().indexOf(q) !== -1 ||
+            (p.category || "").toLowerCase().indexOf(q) !== -1 ||
+            (p.note || "").toLowerCase().indexOf(q) !== -1;
+      });
+   }
+   if (state.pp.month && state.pp.month !== "all") {
+      list = list.filter(function (p) {
+         if (!p.date) return false;
+         return p.date.substring(5, 7) === state.pp.month;
+      });
+   }
+   if (state.pp.week) {
+      list = list.filter(function (p) {
+         return p.weekKey === state.pp.week;
+      });
+   }
+   if (state.pp.status && state.pp.status !== "all") {
+      list = list.filter(function (p) {
+         return p.status === state.pp.status;
+      });
+   }
+
+   if (list.length === 0) {
+      toast("Tidak ada data belanja produksi untuk di-export", "warning");
+      return;
+   }
+
+   // Sort list by date ascending for chronologically ordered reports
+   list.sort(function (a, b) {
+      return (a.date || "").localeCompare(b.date || "");
+   });
+
+   // Initialize ExcelJS Workbook
+   var workbook = new ExcelJS.Workbook();
+   var worksheet = workbook.addWorksheet("Belanja Produksi");
+
+   worksheet.columns = [
+      { header: "Tanggal", key: "tanggal", width: 15 },
+      { header: "Week", key: "week", width: 15 },
+      { header: "Nama Item", key: "item_name", width: 28 },
+      { header: "Kategori", key: "category", width: 20 },
+      { header: "Quantity", key: "qty", width: 12 },
+      { header: "Unit", key: "unit", width: 12 },
+      { header: "Harga Satuan", key: "harga", width: 16 },
+      { header: "Total Biaya", key: "total", width: 18 },
+      { header: "Status", key: "status", width: 12 },
+      { header: "Catatan", key: "note", width: 32 }
+   ];
+
+   // Style Header Row
+   var headerRow = worksheet.getRow(1);
+   headerRow.height = 26;
+   headerRow.eachCell(function (cell) {
+      cell.fill = {
+         type: "pattern",
+         pattern: "solid",
+         fgColor: { argb: "FFF2C94C" } // Yellow color #f2c94c
+      };
+      cell.font = {
+         name: "Arial",
+         size: 10,
+         bold: true
+      };
+      cell.border = {
+         top: { style: "thin" },
+         left: { style: "thin" },
+         bottom: { style: "thin" },
+         right: { style: "thin" }
+      };
+      cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+   });
+
+   // Helper styling function
+   function applyPPRowStyles(row) {
+      row.eachCell(function (cell, colNumber) {
+         cell.font = { name: "Arial", size: 10 };
+         cell.border = {
+            top: { style: "thin" },
+            left: { style: "thin" },
+            bottom: { style: "thin" },
+            right: { style: "thin" }
+         };
+
+         if (colNumber === 1 || colNumber === 2 || colNumber === 9) { // Tanggal, Week, Status
+            cell.alignment = { vertical: "middle", horizontal: "center" };
+         } else if (colNumber === 5) { // Quantity
+            cell.alignment = { vertical: "middle", horizontal: "right" };
+            cell.numFmt = "#,##0.##";
+         } else if (colNumber === 7 || colNumber === 8) { // Harga Satuan, Total Biaya
+            cell.alignment = { vertical: "middle", horizontal: "right" };
+            cell.numFmt = "#,##0";
+         } else { // Nama Item, Kategori, Unit, Catatan
+            cell.alignment = { vertical: "middle", horizontal: "left" };
+         }
+      });
+   }
+
+   var totalCostSum = 0;
+   list.forEach(function (p) {
+      totalCostSum += p.totalCost || 0;
+      var row = worksheet.addRow({
+         tanggal: p.date || "",
+         week: p.weekKey || "",
+         item_name: p.itemName || "",
+         category: p.category || "",
+         qty: p.quantity || 0,
+         unit: p.unit || "",
+         harga: p.unitPrice || 0,
+         total: p.totalCost || 0,
+         status: p.status || "",
+         note: p.note || ""
+      });
+      applyPPRowStyles(row);
+   });
+
+   // Add Grand Total Row
+   var totalRow = worksheet.addRow({
+      tanggal: "TOTAL BIAYA",
+      week: "",
+      item_name: "",
+      category: "",
+      qty: "",
+      unit: "",
+      harga: "",
+      total: totalCostSum,
+      status: "",
+      note: ""
+   });
+   totalRow.height = 24;
+   totalRow.eachCell(function (cell, colNumber) {
+      cell.font = { name: "Arial", size: 10, bold: true };
+      cell.fill = {
+         type: "pattern",
+         pattern: "solid",
+         fgColor: { argb: "FFFFE57F" } // Light amber accent
+      };
+      cell.border = {
+         top: { style: "double" },
+         bottom: { style: "double" },
+         left: { style: "thin" },
+         right: { style: "thin" }
+      };
+
+      if (colNumber === 8) {
+         cell.alignment = { vertical: "middle", horizontal: "right" };
+         cell.numFmt = "#,##0";
+      } else {
+         cell.alignment = { vertical: "middle", horizontal: "left" };
+      }
+   });
+
+   // Write Buffer and Download
+   workbook.xlsx.writeBuffer().then(function (buffer) {
+      var blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      var a = document.createElement("a");
+      var dateStr = new Date().toISOString().split("T")[0].replace(/-/g, "_");
+      a.href = URL.createObjectURL(blob);
+      a.download = "production_purchase_report_" + dateStr + ".xlsx";
+      a.click();
+      toast("Data belanja produksi di-export ke Excel", "success");
+   });
 };
 
 // ---- Purchase modal helpers ----
@@ -4874,7 +5166,8 @@ function renderPayrolls() {
           <option value="paid" ${status === "paid" ? "selected" : ""}>Lunas</option>
         </select>
       </div>
-      <div style="margin-left:auto">
+      <div class="responsive-action-group" style="margin-left:auto;display:flex;gap:8px;align-items:center">
+        <button class="btn btn-outline btn-sm" onclick="exportPayroll()"><i class="fas fa-download"></i>Export</button>
         <button class="btn btn-primary btn-sm" onclick="openAddPayrollModal()"><i class="fas fa-plus"></i>Tambah Gaji</button>
       </div>
     </div>`;
@@ -4947,6 +5240,178 @@ window.onPayrollStatus = function (val) {
 window.goPayrollPage = function (n) {
    state.payroll.page = n;
    renderPayrolls();
+};
+
+window.exportPayroll = function () {
+   var list = state.payrolls.filter(canAccessPayrollRecord);
+
+   // Filter following active states: search, period, status
+   if (state.payroll.search) {
+      var q = state.payroll.search.toLowerCase();
+      list = list.filter(function (p) {
+         return (p.employeeName || "").toLowerCase().indexOf(q) !== -1 ||
+            (p.note || "").toLowerCase().indexOf(q) !== -1 ||
+            (p.period || "").toLowerCase().indexOf(q) !== -1;
+      });
+   }
+   if (state.payroll.period) {
+      list = list.filter(function (p) {
+         return p.period === state.payroll.period;
+      });
+   }
+   if (state.payroll.status && state.payroll.status !== "all") {
+      list = list.filter(function (p) {
+         return p.status === state.payroll.status;
+      });
+   }
+
+   if (list.length === 0) {
+      toast("Tidak ada data gaji untuk di-export", "warning");
+      return;
+   }
+
+   // Sort list by Employee Name ascending
+   list.sort(function (a, b) {
+      return (a.employeeName || "").localeCompare(b.employeeName || "");
+   });
+
+   // Initialize ExcelJS Workbook
+   var workbook = new ExcelJS.Workbook();
+   var worksheet = workbook.addWorksheet("Payroll Karyawan");
+
+   worksheet.columns = [
+      { header: "Nama Karyawan", key: "nama", width: 25 },
+      { header: "Jabatan", key: "jabatan", width: 16 },
+      { header: "Periode", key: "periode", width: 15 },
+      { header: "Tgl Bayar", key: "tgl_bayar", width: 15 },
+      { header: "Gaji Pokok", key: "gaji_pokok", width: 16 },
+      { header: "Bonus", key: "bonus", width: 16 },
+      { header: "Potongan", key: "potongan", width: 16 },
+      { header: "Total Diterima", key: "total", width: 18 },
+      { header: "Status", key: "status", width: 14 },
+      { header: "Catatan", key: "catatan", width: 32 }
+   ];
+
+   // Style Header Row
+   var headerRow = worksheet.getRow(1);
+   headerRow.height = 26;
+   headerRow.eachCell(function (cell) {
+      cell.fill = {
+         type: "pattern",
+         pattern: "solid",
+         fgColor: { argb: "FFF2C94C" } // Yellow color #f2c94c
+      };
+      cell.font = {
+         name: "Arial",
+         size: 10,
+         bold: true
+      };
+      cell.border = {
+         top: { style: "thin" },
+         left: { style: "thin" },
+         bottom: { style: "thin" },
+         right: { style: "thin" }
+      };
+      cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+   });
+
+   // Helper styling function
+   function applyPayrollRowStyles(row) {
+      row.eachCell(function (cell, colNumber) {
+         cell.font = { name: "Arial", size: 10 };
+         cell.border = {
+            top: { style: "thin" },
+            left: { style: "thin" },
+            bottom: { style: "thin" },
+            right: { style: "thin" }
+         };
+
+         if (colNumber === 3 || colNumber === 4 || colNumber === 9) { // Periode, Tgl Bayar, Status
+            cell.alignment = { vertical: "middle", horizontal: "center" };
+         } else if (colNumber === 5 || colNumber === 6 || colNumber === 7 || colNumber === 8) { // Currency columns
+            cell.alignment = { vertical: "middle", horizontal: "right" };
+            cell.numFmt = "#,##0";
+         } else { // Nama Karyawan, Jabatan, Catatan
+            cell.alignment = { vertical: "middle", horizontal: "left" };
+         }
+      });
+   }
+
+   var totalBase = 0;
+   var totalBonus = 0;
+   var totalDeduction = 0;
+   var totalPaidSum = 0;
+
+   list.forEach(function (p) {
+      totalBase += p.baseSalary || 0;
+      totalBonus += p.bonus || 0;
+      totalDeduction += p.deduction || 0;
+      totalPaidSum += p.totalPaid || 0;
+
+      var statusText = p.status === "paid" ? "Lunas" : "Belum Lunas";
+      var roleText = p.employeeRole === "owner" ? "Owner" : p.employeeRole === "admin" ? "Admin" : p.employeeRole === "staff" ? "Staff" : "Karyawan";
+
+      var row = worksheet.addRow({
+         nama: p.employeeName || "",
+         jabatan: roleText,
+         periode: p.period || "",
+         tgl_bayar: p.paymentDate || "",
+         gaji_pokok: p.baseSalary || 0,
+         bonus: p.bonus || 0,
+         potongan: p.deduction || 0,
+         total: p.totalPaid || 0,
+         status: statusText,
+         catatan: p.note || ""
+      });
+      applyPayrollRowStyles(row);
+   });
+
+   // Add Grand Total Row
+   var totalRow = worksheet.addRow({
+      nama: "TOTAL PAYROLL",
+      jabatan: "",
+      periode: "",
+      tgl_bayar: "",
+      gaji_pokok: totalBase,
+      bonus: totalBonus,
+      potongan: totalDeduction,
+      total: totalPaidSum,
+      status: "",
+      catatan: ""
+   });
+   totalRow.height = 24;
+   totalRow.eachCell(function (cell, colNumber) {
+      cell.font = { name: "Arial", size: 10, bold: true };
+      cell.fill = {
+         type: "pattern",
+         pattern: "solid",
+         fgColor: { argb: "FFFFE57F" } // Light amber accent
+      };
+      cell.border = {
+         top: { style: "double" },
+         bottom: { style: "double" },
+         left: { style: "thin" },
+         right: { style: "thin" }
+      };
+
+      if (colNumber === 5 || colNumber === 6 || colNumber === 7 || colNumber === 8) {
+         cell.alignment = { vertical: "middle", horizontal: "right" };
+         cell.numFmt = "#,##0";
+      } else {
+         cell.alignment = { vertical: "middle", horizontal: "left" };
+      }
+   });
+
+   // Write Buffer and Download
+   workbook.xlsx.writeBuffer().then(function (buffer) {
+      var blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      var a = document.createElement("a");
+      var dateStr = new Date().toISOString().split("T")[0].replace(/-/g, "_");
+      a.href = URL.createObjectURL(blob);
+      a.download = "payroll_report_" + dateStr + ".xlsx";
+      a.click();
+      toast("Data payroll di-export ke Excel", "success");
+   });
 };
 
 // ---- Payroll form HTML ----
@@ -7859,6 +8324,843 @@ async function loadUserProfile(firebaseUser) {
    // 4. No Firestore profile found — use fallback (role: User)
    return fallback;
 }
+
+/* =========================================================
+   RESELLER MANAGEMENT
+   ========================================================= */
+window.renderResellers = function () {
+   var container = $("#pageReseller");
+   if (!container) return;
+
+   var _role = getCurrentUserRole();
+   if (_role !== "owner" && _role !== "admin") {
+      container.innerHTML =
+         '<div class="empty-state"><i class="fas fa-lock"></i><h4>Akses ditolak</h4><p>Halaman ini hanya untuk Owner atau Admin</p></div>';
+      return;
+   }
+
+   var list = state.resellers || [];
+
+   // --- Filtering: search ---
+   if (state.reseller.search) {
+      var q = state.reseller.search.toLowerCase().trim();
+      list = list.filter(function (d) {
+         return (d.name || "").toLowerCase().indexOf(q) !== -1;
+      });
+   }
+
+   var rPerPage = state.reseller.perPage;
+   var rTotal = Math.max(1, Math.ceil(list.length / rPerPage));
+   if (state.reseller.page > rTotal) state.reseller.page = 1;
+   var rStart = (state.reseller.page - 1) * rPerPage;
+   var rItems = list.slice(rStart, rStart + rPerPage);
+
+   var tableRows = list.length
+      ? rItems
+           .map(function (doc) {
+              var dateFormatted = doc.createdAt
+                 ? new Date(doc.createdAt).toLocaleDateString("id-ID", {
+                      day: "numeric",
+                      month: "long",
+                      year: "numeric",
+                   })
+                 : "-";
+
+              var statusText = doc.status === "active" ? "Aktif" : "Nonaktif";
+              var statusBadgeClass = doc.status === "active" ? "badge-active" : "badge-inactive";
+              var statusIcon = doc.status === "active" ? "fa-toggle-on" : "fa-toggle-off";
+              var statusTitle = doc.status === "active" ? "Nonaktifkan" : "Aktifkan";
+
+              return (
+                 '<tr>' +
+                 '<td><strong>' + (doc.name || "-") + '</strong></td>' +
+                 '<td style="color:var(--text-muted)">' + dateFormatted + '</td>' +
+                 '<td><span class="badge ' + statusBadgeClass + '">' + statusText + '</span></td>' +
+                 '<td>' +
+                 '<div style="display:flex;gap:6px">' +
+                 '<button class="action-btn" title="Edit Nama" onclick="openResellerModal(\'' + doc.id + '\', true)"><i class="fas fa-pen"></i></button>' +
+                 '<button class="action-btn" title="' + statusTitle + '" onclick="toggleResellerStatus(\'' + doc.id + '\')"><i class="fas ' + statusIcon + '"></i></button>' +
+                 '<button class="action-btn del" title="Hapus" onclick="confirmDeleteReseller(\'' + doc.id + '\')"><i class="fas fa-trash"></i></button>' +
+                 '</div>' +
+                 '</td>' +
+                 '</tr>'
+              );
+           })
+           .join("")
+      : '<tr><td colspan="4"><div class="empty-state"><i class="fas fa-user-tag"></i><h4>Belum ada data reseller</h4><p>Klik "+ Tambah Reseller" untuk menambahkan</p></div></td></tr>';
+
+   var rPag =
+      "<button " +
+      (state.reseller.page <= 1 ? "disabled" : "") +
+      ' onclick="goResellerPage(' +
+      (state.reseller.page - 1) +
+      ')"><i class="fas fa-chevron-left"></i></button>';
+   for (var rI = 1; rI <= rTotal; rI++) {
+      rPag +=
+         '<button class="' +
+         (rI === state.reseller.page ? "active" : "") +
+         '" onclick="goResellerPage(' +
+         rI +
+         ')">' +
+         rI +
+         "</button>";
+   }
+   rPag +=
+      "<button " +
+      (state.reseller.page >= rTotal ? "disabled" : "") +
+      ' onclick="goResellerPage(' +
+      (state.reseller.page + 1) +
+      ')"><i class="fas fa-chevron-right"></i></button>';
+
+   container.innerHTML =
+      '<div class="cat-toolbar">' +
+      "<div>" +
+      '<h3 style="font-size:16px;font-weight:700">Reseller Management</h3>' +
+      '<p style="font-size:13px;color:var(--text-muted);margin-top:4px">' +
+      list.length +
+      " reseller terdaftar</p>" +
+      "</div>" +
+      '<div style="display:flex;gap:8px">' +
+      '<button class="btn btn-primary btn-sm" onclick="openResellerModal()">' +
+      '<i class="fas fa-plus"></i>Tambah Reseller' +
+      '</button>' +
+      '</div>' +
+      "</div>" +
+      // --- Search Bar ---
+      '<div class="table-toolbar" style="margin-bottom:14px">' +
+      '<div class="table-search">' +
+      '<i class="fas fa-search"></i>' +
+      '<input type="text" placeholder="Cari reseller..." id="resellerSearch" value="' + (state.reseller.search || "").replace(/"/g, "&quot;") + '" oninput="onResellerSearch(this.value)">' +
+      '</div>' +
+      "</div>" +
+      // --- Table ---
+      '<div class="card">' +
+      '<div class="table-scroll">' +
+      '<table class="data-table">' +
+      '<thead>' +
+      '<tr>' +
+      '<th>Nama Reseller</th>' +
+      '<th>Tanggal Dibuat</th>' +
+      '<th>Status</th>' +
+      '<th>Aksi</th>' +
+      '</tr>' +
+      '</thead>' +
+      '<tbody id="resellerBody">' +
+      tableRows +
+      '</tbody>' +
+      '</table>' +
+      '</div>' +
+      '<div class="table-footer" style="margin-top:16px">' +
+      "<span>" +
+      (list.length > 0
+         ? "Menampilkan " +
+           (rStart + 1) +
+           "\u2013" +
+           Math.min(rStart + rPerPage, list.length) +
+           " dari " +
+           list.length +
+           " reseller"
+         : "0 reseller") +
+      "</span>" +
+      '<div class="pagination">' +
+      rPag +
+      "</div>" +
+      "</div>" +
+      "</div>";
+};
+
+window.onResellerSearch = function (val) {
+   state.reseller.search = val;
+   state.reseller.page = 1;
+   renderResellers();
+};
+
+window.goResellerPage = function (p) {
+   state.reseller.page = p;
+   renderResellers();
+};
+
+window.openResellerModal = function (docId, isEdit) {
+   var existing = null;
+   if (isEdit && docId) {
+      existing = state.resellers.find(function (r) { return r.id === docId; });
+   }
+
+   var title = existing ? "Edit Reseller" : "Tambah Reseller";
+   var nameVal = existing ? existing.name : "";
+   var statusVal = existing ? existing.status : "active";
+
+   var body =
+      '<form id="resellerForm" onsubmit="event.preventDefault(); saveReseller(' + (docId ? "'" + docId + "'" : "null") + ')">' +
+      '<div class="form-group" style="margin-bottom:14px">' +
+      '<label style="display:block;font-size:13px;font-weight:700;margin-bottom:6px">Nama Reseller <span style="color:red">*</span></label>' +
+      '<input type="text" id="resellerNameInput" class="form-control" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm)" placeholder="Masukkan nama reseller..." value="' + nameVal.replace(/"/g, "&quot;") + '" required>' +
+      '</div>' +
+      (existing
+         ? '<div class="form-group" style="margin-bottom:14px">' +
+           '<label style="display:block;font-size:13px;font-weight:700;margin-bottom:6px">Status</label>' +
+           '<select id="resellerStatusInput" class="form-control" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm)">' +
+           '<option value="active"' + (statusVal === "active" ? " selected" : "") + '>Aktif</option>' +
+           '<option value="inactive"' + (statusVal === "inactive" ? " selected" : "") + '>Nonaktif (Inactive)</option>' +
+           '</select>' +
+           '</div>'
+         : "") +
+      '</form>';
+
+   var footer =
+      '<button type="button" class="btn btn-outline btn-sm" onclick="closeModal()">Batal</button>' +
+      '<button type="button" class="btn btn-primary btn-sm" onclick="$(\'#resellerForm\').dispatchEvent(new Event(\'submit\'))">Simpan</button>';
+
+   openModal(title, body, footer);
+};
+
+window.saveReseller = async function (docId) {
+   var nameInput = $("#resellerNameInput");
+   var name = nameInput ? nameInput.value.trim() : "";
+   if (!name) {
+      toast("Nama reseller wajib diisi", "warning");
+      return;
+   }
+
+   var nameExists = state.resellers.some(function (r) {
+      if (docId && r.id === docId) return false;
+      return (r.name || "").toLowerCase() === name.toLowerCase();
+   });
+
+   if (nameExists) {
+      toast("Nama reseller sudah terdaftar", "warning");
+      return;
+   }
+
+   var statusInput = $("#resellerStatusInput");
+   var status = statusInput ? statusInput.value : "active";
+
+   var docData = {
+      name: name,
+      status: status,
+      updatedAt: new Date().toISOString()
+   };
+
+   var saveBtn = $("#modalFooter .btn-primary");
+   var originalHtml = saveBtn.innerHTML;
+   saveBtn.disabled = true;
+   saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Menyimpan...';
+
+   try {
+      if (docId) {
+         await db.collection("resellers").doc(docId).update(sanitize(docData));
+         toast("Reseller berhasil diperbarui", "success");
+      } else {
+         docData.createdAt = new Date().toISOString();
+         await db.collection("resellers").add(sanitize(docData));
+         toast("Reseller berhasil ditambahkan", "success");
+      }
+      closeModal();
+   } catch (err) {
+      console.error("Gagal menyimpan reseller:", err);
+      toast("Gagal menyimpan: " + err.message, "error");
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = originalHtml;
+   }
+};
+
+window.toggleResellerStatus = async function (docId) {
+   var r = state.resellers.find(function (x) { return x.id === docId; });
+   if (!r) return;
+   var newStatus = r.status === "active" ? "inactive" : "active";
+
+   try {
+      await db.collection("resellers").doc(docId).update({
+         status: newStatus,
+         updatedAt: new Date().toISOString()
+      });
+      toast("Status reseller berhasil diubah", "success");
+   } catch (err) {
+      console.error("Gagal mengubah status reseller:", err);
+      toast("Gagal mengubah status: " + err.message, "error");
+   }
+};
+
+window.confirmDeleteReseller = function (docId) {
+   var r = state.resellers.find(function (x) { return x.id === docId; });
+   if (!r) return;
+
+   var isReferenced = (state.sales || []).some(function (s) {
+      return s.resellerId === docId;
+   });
+
+   if (isReferenced) {
+      var title = "Tidak Dapat Menghapus Reseller";
+      var body =
+         '<div style="text-align:center;padding:10px 0">' +
+         '<i class="fas fa-exclamation-triangle" style="font-size:40px;color:var(--warning);margin-bottom:14px"></i>' +
+         '<p style="font-size:14px;line-height:1.6;margin-bottom:10px">' +
+         'Reseller <strong>' + r.name + '</strong> tidak dapat dihapus karena sudah digunakan dalam histori transaksi penjualan.' +
+         '</p>' +
+         '<p style="font-size:13px;color:var(--text-muted)">' +
+         'Untuk menonaktifkan reseller ini tanpa menghapus histori penjualan, ubah statusnya menjadi <strong>Nonaktif</strong>.' +
+         '</p>' +
+         '</div>';
+      var footer =
+         '<button type="button" class="btn btn-outline btn-sm" onclick="closeModal()">Tutup</button>' +
+         '<button type="button" class="btn btn-primary btn-sm" onclick="closeModal(); toggleResellerStatus(\'' + docId + '\')">Ubah Jadi Nonaktif</button>';
+      openModal(title, body, footer);
+   } else {
+      var title = "Hapus Reseller";
+      var body = '<p>Apakah Anda yakin ingin menghapus reseller <strong>' + r.name + '</strong> secara permanen?</p>';
+      var footer =
+         '<button type="button" class="btn btn-outline btn-sm" onclick="closeModal()">Batal</button>' +
+         '<button type="button" class="btn btn-danger btn-sm" onclick="closeModal(); deleteReseller(\'' + docId + '\')">Hapus Permanen</button>';
+      openModal(title, body, footer);
+   }
+};
+
+window.deleteReseller = async function (docId) {
+   try {
+      await db.collection("resellers").doc(docId).delete();
+      toast("Reseller berhasil dihapus permanen", "success");
+   } catch (err) {
+      console.error("Gagal menghapus reseller:", err);
+      toast("Gagal menghapus: " + err.message, "error");
+   }
+};
+
+window.populateResellerFilters = function () {
+   var filter = $("#saleResellerFilter");
+   if (!filter) return;
+   var currentVal = state.sale.resellerId || "all";
+
+   var options = '<option value="all">Semua Reseller</option>';
+   (state.resellers || []).forEach(function (r) {
+      if (r.status === "active" || r.id === currentVal) {
+         options += '<option value="' + r.id + '"' + (r.id === currentVal ? " selected" : "") + '>' + r.name + (r.status === "inactive" ? " (Nonaktif)" : "") + '</option>';
+      }
+   });
+   filter.innerHTML = options;
+};
+
+window.toggleResellerDropdown = function (isEdit, selectedResellerId) {
+   var prefix = isEdit ? "fEdit" : "f";
+   var channelSelect = $("#" + prefix + "SaleChannel");
+   var resellerGroup = $("#" + prefix + "SaleResellerGroup");
+   var resellerSelect = $("#" + prefix + "SaleReseller");
+
+   if (!channelSelect || !resellerGroup || !resellerSelect) return;
+
+   var channel = channelSelect.value;
+   if (channel === "Reseller") {
+      resellerGroup.style.display = "block";
+      var options = '<option value="">— Pilih Reseller —</option>';
+      (state.resellers || []).forEach(function (r) {
+         if (r.status === "active" || r.id === selectedResellerId) {
+            var selectedAttr = r.id === selectedResellerId ? " selected" : "";
+            options += '<option value="' + r.id + '"' + selectedAttr + '>' + r.name + (r.status === "inactive" ? " (Nonaktif)" : "") + '</option>';
+         }
+      });
+      resellerSelect.innerHTML = options;
+   } else {
+      resellerGroup.style.display = "none";
+      resellerSelect.value = "";
+   }
+};
+
+window.exportResellerSales = function () {
+   let list = [...state.sales].sort((a, b) =>
+      (b.date || "").localeCompare(a.date || "")
+   );
+   if (state.sale.search) {
+      const q = state.sale.search.toLowerCase().trim();
+      list = list.filter((s) =>
+         (s.txNumber || "").toLowerCase().includes(q) ||
+         (s.productName || "").toLowerCase().includes(q) ||
+         (s.customer || "").toLowerCase().includes(q) ||
+         (normalizeChannelValue(s.channel) || "").toLowerCase().includes(q) ||
+         (s.resellerName || "").toLowerCase().includes(q) ||
+         (s.city || "").toLowerCase().includes(q) ||
+         (s.district || "").toLowerCase().includes(q) ||
+         (s.expedition || "").toLowerCase().includes(q)
+      );
+   }
+   if (state.sale.channel !== "all") {
+      list = list.filter((s) => isChannelMatch(s.channel, state.sale.channel));
+      if (state.sale.channel === "Reseller" && state.sale.resellerId !== "all") {
+         list = list.filter((s) => s.resellerId === state.sale.resellerId);
+      }
+   }
+   if (state.sale.month !== "all" || state.sale.year !== "all") {
+      list = list.filter((s) =>
+         matchesMonthYear(s.date, state.sale.month, state.sale.year)
+      );
+   }
+
+   if (list.length === 0) {
+      toast("Tidak ada data penjualan untuk di-export", "warning");
+      return;
+   }
+
+   var workbook = new ExcelJS.Workbook();
+   var worksheet = workbook.addWorksheet("Laporan Penjualan");
+
+   var resellerNameStr = "Semua Reseller";
+   if (state.sale.channel === "Reseller" && state.sale.resellerId !== "all") {
+      var resObj = state.resellers.find(function (r) { return r.id === state.sale.resellerId; });
+      if (resObj) resellerNameStr = resObj.name;
+   } else if (state.sale.channel !== "all") {
+      resellerNameStr = "Semua Reseller (Filter Channel: " + state.sale.channel + ")";
+   }
+
+   var exportDateStr = new Date().toLocaleDateString("id-ID", {
+      day: "numeric",
+      month: "long",
+      year: "numeric"
+   });
+
+   var periodStr = "Semua Periode";
+   if (list.length > 0) {
+      var dates = list.map(function (s) { return s.date; }).filter(Boolean).sort();
+      if (dates.length > 0) {
+         var minDate = new Date(dates[0]).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+         var maxDate = new Date(dates[dates.length - 1]).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+         if (dates[0] === dates[dates.length - 1]) {
+            periodStr = minDate;
+         } else {
+            periodStr = minDate + " - " + maxDate;
+         }
+      }
+   }
+
+   worksheet.getCell("A1").value = "LAPORAN PENJUALAN RESELLER";
+   worksheet.getCell("A1").font = { name: "Arial", size: 16, bold: true, color: { argb: "FF2B2B2B" } };
+
+   worksheet.getCell("A3").value = "Nama Reseller";
+   worksheet.getCell("B3").value = ": " + resellerNameStr;
+   worksheet.getCell("A4").value = "Periode";
+   worksheet.getCell("B4").value = ": " + periodStr;
+   worksheet.getCell("A5").value = "Tanggal Export";
+   worksheet.getCell("B5").value = ": " + exportDateStr;
+   worksheet.getCell("A6").value = "Jumlah Transaksi";
+   worksheet.getCell("B6").value = ": " + list.length;
+
+   ["A3", "A4", "A5", "A6"].forEach(function (cellId) {
+      worksheet.getCell(cellId).font = { name: "Arial", size: 10, bold: true };
+   });
+
+   var totalQty = 0;
+   var totalRevenue = 0;
+   var totalProfit = 0;
+   list.forEach(function (s) {
+      totalQty += Number(s.quantity || 0);
+      var displayRev = s.realRevenue !== undefined ? s.realRevenue : s.revenue || 0;
+      var displayProf = s.realProfit !== undefined ? s.realProfit : s.profit || 0;
+      totalRevenue += displayRev;
+      totalProfit += displayProf;
+   });
+
+   worksheet.getCell("A8").value = "RINGKASAN PENJUALAN";
+   worksheet.getCell("A8").font = { name: "Arial", size: 11, bold: true };
+
+   worksheet.getRow(9).values = ["Total Transaksi", "Total Qty", "Total Revenue", "Total Profit"];
+   worksheet.getRow(9).font = { name: "Arial", size: 10, bold: true };
+   worksheet.getRow(9).height = 20;
+   worksheet.getRow(9).eachCell(function (cell) {
+      cell.fill = {
+         type: "pattern",
+         pattern: "solid",
+         fgColor: { argb: "FFE0E0E0" }
+      };
+      cell.border = {
+         top: { style: "thin" },
+         left: { style: "thin" },
+         bottom: { style: "thin" },
+         right: { style: "thin" }
+      };
+      cell.alignment = { horizontal: "center", vertical: "middle" };
+   });
+
+   worksheet.getRow(10).values = [list.length, totalQty, totalRevenue, totalProfit];
+   worksheet.getRow(10).height = 22;
+   worksheet.getRow(10).eachCell(function (cell, colNum) {
+      cell.font = { name: "Arial", size: 10, bold: true };
+      cell.border = {
+         top: { style: "thin" },
+         left: { style: "thin" },
+         bottom: { style: "thin" },
+         right: { style: "thin" }
+      };
+      if (colNum === 1 || colNum === 2) {
+         cell.alignment = { horizontal: "center", vertical: "middle" };
+         cell.numFmt = "#,##0";
+      } else {
+         cell.alignment = { horizontal: "right", vertical: "middle" };
+         cell.numFmt = "\"Rp\" #,##0";
+      }
+   });
+
+   worksheet.getRow(12).values = [
+      "Tanggal",
+      "No. Transaksi",
+      "Produk",
+      "Qty",
+      "Harga Satuan",
+      "Pendapatan",
+      "Keuntungan",
+      "Pelanggan",
+      "Kota",
+      "Ekspedisi"
+   ];
+   worksheet.getRow(12).height = 26;
+   worksheet.getRow(12).eachCell(function (cell) {
+      cell.fill = {
+         type: "pattern",
+         pattern: "solid",
+         fgColor: { argb: "FFF2C94C" }
+      };
+      cell.font = { name: "Arial", size: 10, bold: true };
+      cell.border = {
+         top: { style: "thin" },
+         left: { style: "thin" },
+         bottom: { style: "thin" },
+         right: { style: "thin" }
+      };
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+   });
+
+   list.forEach(function (s) {
+      var displayRev = s.realRevenue !== undefined ? s.realRevenue : s.revenue || 0;
+      var displayProf = s.realProfit !== undefined ? s.realProfit : s.profit || 0;
+      var unitPrice = s.realUnitPrice !== undefined ? s.realUnitPrice : (s.quantity ? displayRev / s.quantity : s.sellingPrice) || 0;
+
+      var row = worksheet.addRow([
+         s.date || "",
+         s.txNumber || "",
+         s.productName || "",
+         Number(s.quantity || 0),
+         Number(unitPrice),
+         Number(displayRev),
+         Number(displayProf),
+         s.customer || "-",
+         s.city || "-",
+         s.expedition || "-"
+      ]);
+
+      row.height = 20;
+      row.eachCell(function (cell, colNumber) {
+         cell.font = { name: "Arial", size: 10 };
+         cell.border = {
+            top: { style: "thin" },
+            left: { style: "thin" },
+            bottom: { style: "thin" },
+            right: { style: "thin" }
+         };
+
+         if (colNumber === 4) {
+            cell.alignment = { vertical: "middle", horizontal: "center" };
+            cell.numFmt = "#,##0";
+         } else if (colNumber === 5 || colNumber === 6 || colNumber === 7) {
+            cell.alignment = { vertical: "middle", horizontal: "right" };
+            cell.numFmt = "\"Rp\" #,##0";
+         } else if (colNumber === 1 || colNumber === 2) {
+            cell.alignment = { vertical: "middle", horizontal: "center" };
+         } else {
+            cell.alignment = { vertical: "middle", horizontal: "left" };
+         }
+      });
+   });
+
+   var totalRow = worksheet.addRow([
+      "TOTAL BIAYA",
+      "",
+      "",
+      totalQty,
+      "",
+      totalRevenue,
+      totalProfit,
+      "",
+      "",
+      ""
+   ]);
+   totalRow.height = 24;
+   totalRow.eachCell(function (cell, colNumber) {
+      cell.font = { name: "Arial", size: 10, bold: true };
+      cell.fill = {
+         type: "pattern",
+         pattern: "solid",
+         fgColor: { argb: "FFFFE57F" }
+      };
+      cell.border = {
+         top: { style: "double" },
+         bottom: { style: "double" },
+         left: { style: "thin" },
+         right: { style: "thin" }
+      };
+
+      if (colNumber === 4) {
+         cell.alignment = { vertical: "middle", horizontal: "center" };
+         cell.numFmt = "#,##0";
+      } else if (colNumber === 6 || colNumber === 7) {
+         cell.alignment = { vertical: "middle", horizontal: "right" };
+         cell.numFmt = "\"Rp\" #,##0";
+      } else {
+         cell.alignment = { vertical: "middle", horizontal: "left" };
+      }
+   });
+
+   worksheet.views = [
+      { state: 'frozen', ySplit: 12 }
+   ];
+
+   worksheet.columns.forEach(function (column) {
+      var maxLen = 0;
+      column.eachCell({ includeEmpty: true }, function (cell) {
+         if (cell.row > 11) {
+            var valStr = cell.value ? String(cell.value) : "";
+            if (cell.numFmt && cell.numFmt.indexOf("Rp") !== -1) {
+               valStr = "Rp " + valStr;
+            }
+            if (valStr.length > maxLen) {
+               maxLen = valStr.length;
+            }
+         }
+      });
+      column.width = Math.max(maxLen + 4, 12);
+   });
+
+   var resellerSlug = "semua_reseller";
+   if (state.sale.channel === "Reseller" && state.sale.resellerId !== "all") {
+      var resObj = state.resellers.find(function (r) { return r.id === state.sale.resellerId; });
+      if (resObj && resObj.name) {
+         resellerSlug = resObj.name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "_");
+      }
+   }
+   var yyyy = String(new Date().getFullYear());
+   var mm = String(new Date().getMonth() + 1).padStart(2, "0");
+   var dd = String(new Date().getDate()).padStart(2, "0");
+   var dateStr = yyyy + "_" + mm + "_" + dd;
+
+   workbook.xlsx.writeBuffer().then(function (buffer) {
+      var blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "sales_" + resellerSlug + "_" + dateStr + ".xlsx";
+      a.click();
+      toast("Data penjualan reseller berhasil di-export ke Excel", "success");
+   });
+};
+
+// Event delegation for export button
+document.addEventListener("click", function (e) {
+   var btn = e.target.closest("#exportSaleBtn");
+   if (btn) {
+      e.preventDefault();
+      exportResellerSales();
+   }
+});
+
+/* =========================================================
+   RESELLER ANALYTICS & DASHBOARD
+   ========================================================= */
+window.renderResellerAnalytics = function (list) {
+   var container = $("#resellerAnalyticsContainer");
+   if (!container) return;
+
+   var channel = state.sale.channel;
+   if (channel !== "Reseller") {
+      container.style.display = "none";
+      return;
+   }
+
+   container.style.display = "block";
+
+   if (!list || list.length === 0) {
+      container.innerHTML =
+         '<div class="card" style="padding: 24px; text-align: center; border: 1px dashed var(--border); border-radius: var(--radius-md);">' +
+         '<i class="fas fa-chart-line" style="font-size: 32px; color: var(--text-muted); margin-bottom: 12px;"></i>' +
+         '<h4 style="font-size: 14px; font-weight: 700; color: var(--text-main); margin-bottom: 6px;">Belum ada data reseller yang dapat dianalisis</h4>' +
+         '<p style="font-size: 13px; color: var(--text-muted); margin: 0;">Silakan tambahkan transaksi reseller terlebih dahulu.</p>' +
+         '</div>';
+      return;
+   }
+
+   var resellerIdFilter = state.sale.resellerId || "all";
+
+   if (resellerIdFilter !== "all") {
+      // 1. Reseller Summary Cards (Specific Reseller selected)
+      var totalTx = list.length;
+      var totalQty = 0;
+      var totalRev = 0;
+      var totalProf = 0;
+      list.forEach(function (s) {
+         totalQty += Number(s.quantity || 0);
+         totalRev += s.realRevenue !== undefined ? s.realRevenue : s.revenue || 0;
+         totalProf += s.realProfit !== undefined ? s.realProfit : s.profit || 0;
+      });
+
+      var selectedResellerObj = state.resellers.find(function (r) { return r.id === resellerIdFilter; });
+      var resellerName = selectedResellerObj ? selectedResellerObj.name : "Reseller";
+
+      container.innerHTML =
+         '<div style="margin-bottom:12px;"><h4 style="font-size:14px;font-weight:700;color:var(--text-main);"><i class="fas fa-user-tag" style="margin-right:6px;color:var(--primary);"></i>Performa: ' + resellerName + '</h4></div>' +
+         '<div class="stat-grid" style="margin-bottom: 0;">' +
+         '<div class="stat-card green">' +
+         '<div class="sc-top"><div class="sc-icon"><i class="fas fa-shopping-bag"></i></div><span class="sc-label">Total Transaksi</span></div>' +
+         '<div class="sc-value">' + fmt(totalTx) + '</div>' +
+         '<div class="sc-sub">transaksi penjualan</div>' +
+         '</div>' +
+         '<div class="stat-card gold">' +
+         '<div class="sc-top"><div class="sc-icon"><i class="fas fa-boxes-stacked"></i></div><span class="sc-label">Total Quantity</span></div>' +
+         '<div class="sc-value">' + fmt(totalQty) + '</div>' +
+         '<div class="sc-sub">produk terjual</div>' +
+         '</div>' +
+         '<div class="stat-card blue" style="background:var(--primary-light); color:var(--primary-dark);">' +
+         '<div class="sc-top"><div class="sc-icon" style="background:var(--white); color:var(--primary);"><i class="fas fa-coins"></i></div><span class="sc-label" style="color:var(--text-muted);">Total Revenue</span></div>' +
+         '<div class="sc-value" style="color:var(--primary-dark);">' + fmtRp(totalRev) + '</div>' +
+         '<div class="sc-sub" style="color:var(--text-muted);">total pendapatan kotor</div>' +
+         '</div>' +
+         '<div class="stat-card green" style="background:#E6F4EA; color:#137333;">' +
+         '<div class="sc-top"><div class="sc-icon" style="background:var(--white); color:#137333;"><i class="fas fa-chart-line"></i></div><span class="sc-label" style="color:var(--text-muted);">Total Profit</span></div>' +
+         '<div class="sc-value" style="color:#137333;">' + fmtRp(totalProf) + '</div>' +
+         '<div class="sc-sub" style="color:var(--text-muted);">keuntungan bersih</div>' +
+         '</div>' +
+         '</div>';
+   } else {
+      // 2. Overall Reseller Statistics (Semua Reseller selected)
+      var activeResellersCount = (state.resellers || []).filter(function (r) { return r.status === "active"; }).length;
+      
+      var overallTx = list.length;
+      var overallQty = 0;
+      var overallRev = 0;
+      var overallProf = 0;
+      
+      var resellerData = {};
+      list.forEach(function (s) {
+         var rId = s.resellerId || "unknown";
+         var rName = s.resellerName || "Tanpa Nama";
+         
+         overallQty += Number(s.quantity || 0);
+         var displayRev = s.realRevenue !== undefined ? s.realRevenue : s.revenue || 0;
+         var displayProf = s.realProfit !== undefined ? s.realProfit : s.profit || 0;
+         overallRev += displayRev;
+         overallProf += displayProf;
+         
+         if (!resellerData[rId]) {
+            resellerData[rId] = {
+               id: rId,
+               name: rName,
+               transactions: 0,
+               qty: 0,
+               revenue: 0,
+               profit: 0
+            };
+         }
+         resellerData[rId].transactions += 1;
+         resellerData[rId].qty += Number(s.quantity || 0);
+         resellerData[rId].revenue += displayRev;
+         resellerData[rId].profit += displayProf;
+      });
+
+      var resellerList = Object.values(resellerData);
+
+      var topRevenue = [...resellerList].sort(function (a, b) { return b.revenue - a.revenue; }).slice(0, 5);
+      var topProfit = [...resellerList].sort(function (a, b) { return b.profit - a.profit; }).slice(0, 5);
+      var topTransactions = [...resellerList].sort(function (a, b) { return b.transactions - a.transactions; }).slice(0, 5);
+
+      var distributionList = [...resellerList].sort(function (a, b) { return b.revenue - a.revenue; });
+
+      var rankingWidget = function (title, icon, listData, formatter) {
+         var itemsHtml = listData.length
+            ? listData.map(function (item, idx) {
+                 return (
+                    '<li style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--border)">' +
+                    '<span><span style="font-weight:700; color:var(--primary); margin-right:8px">#' + (idx + 1) + '</span>' + item.name + '</span>' +
+                    '<strong style="color:var(--text-main)">' + formatter(item) + '</strong>' +
+                    '</li>'
+                 );
+              }).join("")
+            : '<li style="padding:8px 0; color:var(--text-muted); font-size:12px; text-align:center;">Tidak ada data</li>';
+
+         return (
+            '<div class="card" style="flex: 1; min-width: 260px; margin-bottom: 0;">' +
+            '<div class="card-header" style="padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px;">' +
+            '<i class="' + icon + '" style="color: var(--primary);"></i>' +
+            '<h4 style="font-size: 13px; font-weight: 700; color: var(--text-main); margin: 0;">' + title + '</h4>' +
+            '</div>' +
+            '<div class="card-body" style="padding: 12px 16px;">' +
+            '<ul style="list-style: none; padding: 0; margin: 0; font-size: 13px;">' +
+            itemsHtml +
+            '</ul>' +
+            '</div>' +
+            '</div>'
+         );
+      };
+
+      var distributionRows = distributionList.length
+         ? distributionList.map(function (row) {
+              return (
+                 '<tr>' +
+                 '<td><strong>' + row.name + '</strong></td>' +
+                 '<td style="text-align:center;">' + fmt(row.transactions) + '</td>' +
+                 '<td style="text-align:center;">' + fmt(row.qty) + '</td>' +
+                 '<td style="text-align:right;font-weight:600;">' + fmtRp(row.revenue) + '</td>' +
+                 '<td style="text-align:right;color:var(--success);font-weight:600;">' + fmtRp(row.profit) + '</td>' +
+                 '</tr>'
+              );
+           }).join("")
+         : '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">Tidak ada data reseller</td></tr>';
+
+      container.innerHTML =
+         '<div class="stat-grid" style="margin-bottom: 16px;">' +
+         '<div class="stat-card maroon">' +
+         '<div class="sc-top"><div class="sc-icon"><i class="fas fa-users"></i></div><span class="sc-label">Reseller Aktif</span></div>' +
+         '<div class="sc-value">' + fmt(activeResellersCount) + '</div>' +
+         '<div class="sc-sub">reseller berstatus aktif</div>' +
+         '</div>' +
+         '<div class="stat-card green">' +
+         '<div class="sc-top"><div class="sc-icon"><i class="fas fa-shopping-bag"></i></div><span class="sc-label">Total Transaksi</span></div>' +
+         '<div class="sc-value">' + fmt(overallTx) + '</div>' +
+         '<div class="sc-sub">transaksi dari semua reseller</div>' +
+         '</div>' +
+         '<div class="stat-card blue" style="background:var(--primary-light); color:var(--primary-dark);">' +
+         '<div class="sc-top"><div class="sc-icon" style="background:var(--white); color:var(--primary);"><i class="fas fa-coins"></i></div><span class="sc-label" style="color:var(--text-muted);">Total Revenue</span></div>' +
+         '<div class="sc-value" style="color:var(--primary-dark);">' + fmtRp(overallRev) + '</div>' +
+         '<div class="sc-sub" style="color:var(--text-muted);">pendapatan semua reseller</div>' +
+         '</div>' +
+         '<div class="stat-card green" style="background:#E6F4EA; color:#137333;">' +
+         '<div class="sc-top"><div class="sc-icon" style="background:var(--white); color:#137333;"><i class="fas fa-chart-line"></i></div><span class="sc-label" style="color:var(--text-muted);">Total Profit</span></div>' +
+         '<div class="sc-value" style="color:#137333;">' + fmtRp(overallProf) + '</div>' +
+         '<div class="sc-sub" style="color:var(--text-muted);">keuntungan bersih semua reseller</div>' +
+         '</div>' +
+         '</div>' +
+
+         '<div style="display:flex; gap:16px; flex-wrap:wrap; margin-bottom:16px;">' +
+         rankingWidget("Top 5 Revenue", "fas fa-trophy", topRevenue, function (i) { return fmtRp(i.revenue); }) +
+         rankingWidget("Top 5 Profit", "fas fa-chart-line", topProfit, function (i) { return "Profit " + fmtRp(i.profit); }) +
+         rankingWidget("Top 5 Transaksi", "fas fa-shopping-bag", topTransactions, function (i) { return fmt(i.transactions) + " transaksi"; }) +
+         '</div>' +
+
+         '<div class="card" style="margin-bottom:0;">' +
+         '<div class="card-header" style="padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px;">' +
+         '<i class="fas fa-table" style="color: var(--primary);"></i>' +
+         '<h4 style="font-size: 13px; font-weight: 700; color: var(--text-main); margin: 0;">Performance Distribution</h4>' +
+         '</div>' +
+         '<div class="table-scroll">' +
+         '<table class="data-table" style="font-size:13px;">' +
+         '<thead>' +
+         '<tr>' +
+         '<th>Nama Reseller</th>' +
+         '<th style="text-align:center;width:120px;">Total Transaksi</th>' +
+         '<th style="text-align:center;width:100px;">Total Qty</th>' +
+         '<th style="text-align:right;width:180px;">Revenue</th>' +
+         '<th style="text-align:right;width:180px;">Profit</th>' +
+         '</tr>' +
+         '</thead>' +
+         '<tbody>' +
+         distributionRows +
+         '</tbody>' +
+         '</table>' +
+         '</div>' +
+         '</div>';
+   }
+};
 
 showAuthLoading();
 
