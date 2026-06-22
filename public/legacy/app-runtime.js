@@ -756,8 +756,7 @@ function initFirebaseListeners() {
                id: d.id,
                ...d.data(),
             }));
-            if (state.currentPage === "belanjaProduksi")
-               renderBelanjaProduksi();
+            renderCurrentPage();
          },
          (err) => console.error("Production purchases listener error:", err),
       );
@@ -769,7 +768,7 @@ function initFirebaseListeners() {
       .onSnapshot(
          (snap) => {
             state.payrolls = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-            if (state.currentPage === "gajiKaryawan") renderPayrolls();
+            renderCurrentPage();
          },
          (err) => console.error("Payrolls listener error:", err),
       );
