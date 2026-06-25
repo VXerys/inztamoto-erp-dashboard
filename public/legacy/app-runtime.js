@@ -232,6 +232,26 @@ const findProduct = (id, name) =>
    state.products.find((x) => x.id === id) ||
    (name ? state.products.find((x) => x.name === name) : null);
 
+const renderPaginationHTML = (currentPage, totalPages, onClickFuncName) => {
+   let pag = `<button ${currentPage <= 1 ? "disabled" : ""} onclick="${onClickFuncName}(${currentPage - 1})"><i class="fas fa-chevron-left"></i></button>`;
+   for (let i = 1; i <= totalPages; i++) {
+      if (
+         totalPages > 7 &&
+         i > 2 &&
+         i < totalPages - 1 &&
+         Math.abs(i - currentPage) > 1
+      ) {
+         if (i === 3 || i === totalPages - 2) {
+            pag += "<button disabled>...</button>";
+         }
+         continue;
+      }
+      pag += `<button class="${i === currentPage ? "active" : ""}" onclick="${onClickFuncName}(${i})">${i}</button>`;
+   }
+   pag += `<button ${currentPage >= totalPages ? "disabled" : ""} onclick="${onClickFuncName}(${currentPage + 1})"><i class="fas fa-chevron-right"></i></button>`;
+   return pag;
+};
+
 /* parsePrice — konversi input harga ke angka bersih
    "250000"     -> 250000
    "Rp 250.000" -> 250000
@@ -2287,22 +2307,7 @@ function renderProductTable() {
          ? `Menampilkan ${start + 1}–${end} dari ${filtered.length} produk`
          : "Tidak ada data";
 
-   let pag = `<button ${state.prod.page <= 1 ? "disabled" : ""} onclick="goProdPage(${state.prod.page - 1})"><i class="fas fa-chevron-left"></i></button>`;
-   for (let i = 1; i <= totalPages; i++) {
-      if (
-         totalPages > 7 &&
-         i > 2 &&
-         i < totalPages - 1 &&
-         Math.abs(i - state.prod.page) > 1
-      ) {
-         if (i === 3 || i === totalPages - 2)
-            pag += "<button disabled>...</button>";
-         continue;
-      }
-      pag += `<button class="${i === state.prod.page ? "active" : ""}" onclick="goProdPage(${i})">${i}</button>`;
-   }
-   pag += `<button ${state.prod.page >= totalPages ? "disabled" : ""} onclick="goProdPage(${state.prod.page + 1})"><i class="fas fa-chevron-right"></i></button>`;
-   $("#prodPagination").innerHTML = pag;
+   $("#prodPagination").innerHTML = renderPaginationHTML(state.prod.page, totalPages, "goProdPage");
 }
 
 window.goProdPage = function (n) {
@@ -3140,11 +3145,7 @@ function renderProductionTable() {
       list.length > 0
          ? `Menampilkan ${start + 1}–${end} dari ${list.length}`
          : "";
-   let pag = `<button ${state.prodOrder.page <= 1 ? "disabled" : ""} onclick="goProdOrderPage(${state.prodOrder.page - 1})"><i class="fas fa-chevron-left"></i></button>`;
-   for (let i = 1; i <= total; i++)
-      pag += `<button class="${i === state.prodOrder.page ? "active" : ""}" onclick="goProdOrderPage(${i})">${i}</button>`;
-   pag += `<button ${state.prodOrder.page >= total ? "disabled" : ""} onclick="goProdOrderPage(${state.prodOrder.page + 1})"><i class="fas fa-chevron-right"></i></button>`;
-   $("#prodOrderPag").innerHTML = pag;
+   $("#prodOrderPag").innerHTML = renderPaginationHTML(state.prodOrder.page, total, "goProdOrderPage");
 }
 
 window.goProdOrderPage = function (n) {
@@ -3453,11 +3454,7 @@ function renderStockHistory() {
       : `<tr><td colspan="7"><div class="empty-state"><i class="fas fa-clock-rotate-left"></i><h4>Belum ada riwayat</h4><p>${filter === "bulan_ini" ? "Tidak ada pergerakan stok bulan ini" : filter === "arsip" ? "Tidak ada data yang diarsip" : "Belum ada riwayat stok"}</p></div></td></tr>`;
 
    // ---- Render pagination ----
-   let pag = `<button ${state.stockHistory.page <= 1 ? "disabled" : ""} onclick="goStockHistoryPage(${state.stockHistory.page - 1})"><i class="fas fa-chevron-left"></i></button>`;
-   for (let i = 1; i <= Math.min(total, 10); i++) {
-      pag += `<button class="${i === state.stockHistory.page ? "active" : ""}" onclick="goStockHistoryPage(${i})">${i}</button>`;
-   }
-   pag += `<button ${state.stockHistory.page >= total ? "disabled" : ""} onclick="goStockHistoryPage(${state.stockHistory.page + 1})"><i class="fas fa-chevron-right"></i></button>`;
+   let pag = renderPaginationHTML(state.stockHistory.page, total, "goStockHistoryPage");
 
    // ---- Inject into history card ----
    const histCard = $("#invHistoryCard");
@@ -3896,11 +3893,7 @@ function renderSales() {
       list.length > 0
          ? `Menampilkan ${start + 1}–${end} dari ${list.length} transaksi`
          : "";
-   let pag = `<button ${state.sale.page <= 1 ? "disabled" : ""} onclick="goSalePage(${state.sale.page - 1})"><i class="fas fa-chevron-left"></i></button>`;
-   for (let i = 1; i <= Math.min(total, 10); i++)
-      pag += `<button class="${i === state.sale.page ? "active" : ""}" onclick="goSalePage(${i})">${i}</button>`;
-   pag += `<button ${state.sale.page >= total ? "disabled" : ""} onclick="goSalePage(${state.sale.page + 1})"><i class="fas fa-chevron-right"></i></button>`;
-   $("#salePag").innerHTML = pag;
+   $("#salePag").innerHTML = renderPaginationHTML(state.sale.page, total, "goSalePage");
    renderResellerAnalytics(list);
 }
 
@@ -4597,11 +4590,7 @@ function renderBelanjaProduksi() {
       : `<tr><td colspan="10"><div class="empty-state"><i class="fas fa-shopping-basket"></i><h4>Belum ada data belanja</h4><p>Tambahkan belanja produksi pertama</p></div></td></tr>`;
 
    // ---- Pagination ----
-   let pag = `<button ${state.pp.page <= 1 ? "disabled" : ""} onclick="goPPPage(${state.pp.page - 1})"><i class="fas fa-chevron-left"></i></button>`;
-   for (let i = 1; i <= Math.min(total, 10); i++) {
-      pag += `<button class="${i === state.pp.page ? "active" : ""}" onclick="goPPPage(${i})">${i}</button>`;
-   }
-   pag += `<button ${state.pp.page >= total ? "disabled" : ""} onclick="goPPPage(${state.pp.page + 1})"><i class="fas fa-chevron-right"></i></button>`;
+   let pag = renderPaginationHTML(state.pp.page, total, "goPPPage");
 
    container.innerHTML = `
     <div class="card">
@@ -5195,11 +5184,7 @@ function renderPayrolls() {
            .join("")
       : `<tr><td colspan="11"><div class="empty-state"><i class="fas fa-money-bill-wave"></i><h4>Belum ada data gaji</h4><p>Tambahkan data penggajian</p></div></td></tr>`;
 
-   let pag = `<button ${state.payroll.page <= 1 ? "disabled" : ""} onclick="goPayrollPage(${state.payroll.page - 1})"><i class="fas fa-chevron-left"></i></button>`;
-   for (let i = 1; i <= Math.min(total, 10); i++) {
-      pag += `<button class="${i === state.payroll.page ? "active" : ""}" onclick="goPayrollPage(${i})">${i}</button>`;
-   }
-   pag += `<button ${state.payroll.page >= total ? "disabled" : ""} onclick="goPayrollPage(${state.payroll.page + 1})"><i class="fas fa-chevron-right"></i></button>`;
+   let pag = renderPaginationHTML(state.payroll.page, total, "goPayrollPage");
 
    container.innerHTML = `
     <div class="card">
@@ -5769,28 +5754,7 @@ function renderSalaryProduksi() {
            .join("")
       : '<div class="empty-state"><i class="fas fa-money-check-dollar"></i><h4>Belum ada data salary produksi</h4><p>Klik "+ Tambah Data" untuk menambahkan</p></div>';
 
-   var spPag =
-      "<button " +
-      (state.salaryProd.page <= 1 ? "disabled" : "") +
-      ' onclick="goSalaryProduksiPage(' +
-      (state.salaryProd.page - 1) +
-      ')"><i class="fas fa-chevron-left"></i></button>';
-   for (var spI = 1; spI <= Math.min(spTotal, 10); spI++) {
-      spPag +=
-         '<button class="' +
-         (spI === state.salaryProd.page ? "active" : "") +
-         '" onclick="goSalaryProduksiPage(' +
-         spI +
-         ')">' +
-         spI +
-         "</button>";
-   }
-   spPag +=
-      "<button " +
-      (state.salaryProd.page >= spTotal ? "disabled" : "") +
-      ' onclick="goSalaryProduksiPage(' +
-      (state.salaryProd.page + 1) +
-      ')"><i class="fas fa-chevron-right"></i></button>';
+   var spPag = renderPaginationHTML(state.salaryProd.page, spTotal, "goSalaryProduksiPage");
 
    // --- Build month/year filter options ---
    var spMonthOpts = '<option value="all"' + (state.salaryProd.month === "all" ? " selected" : "") + '>Semua Bulan</option>';
@@ -6616,28 +6580,7 @@ function renderSponsorship() {
            .join("")
       : '<div class="empty-state"><i class="fas fa-handshake-angle"></i><h4>Belum ada data sponsorship</h4><p>Klik "+ Tambah Data" untuk menambahkan</p></div>';
 
-   var sPag =
-      "<button " +
-      (state.spons.page <= 1 ? "disabled" : "") +
-      ' onclick="goSponsorshipPage(' +
-      (state.spons.page - 1) +
-      ')"><i class="fas fa-chevron-left"></i></button>';
-   for (var sI = 1; sI <= Math.min(sTotal, 10); sI++) {
-      sPag +=
-         '<button class="' +
-         (sI === state.spons.page ? "active" : "") +
-         '" onclick="goSponsorshipPage(' +
-         sI +
-         ')">' +
-         sI +
-         "</button>";
-   }
-   sPag +=
-      "<button " +
-      (state.spons.page >= sTotal ? "disabled" : "") +
-      ' onclick="goSponsorshipPage(' +
-      (state.spons.page + 1) +
-      ')"><i class="fas fa-chevron-right"></i></button>';
+   var sPag = renderPaginationHTML(state.spons.page, sTotal, "goSponsorshipPage");
 
    // --- Build month/year filter options ---
    var sponsMonthOpts = '<option value="all"' + (state.spons.month === "all" ? " selected" : "") + '>Semua Bulan</option>';
@@ -8388,28 +8331,7 @@ window.renderResellers = function () {
            .join("")
       : '<tr><td colspan="4"><div class="empty-state"><i class="fas fa-user-tag"></i><h4>Belum ada data reseller</h4><p>Klik "+ Tambah Reseller" untuk menambahkan</p></div></td></tr>';
 
-   var rPag =
-      "<button " +
-      (state.reseller.page <= 1 ? "disabled" : "") +
-      ' onclick="goResellerPage(' +
-      (state.reseller.page - 1) +
-      ')"><i class="fas fa-chevron-left"></i></button>';
-   for (var rI = 1; rI <= rTotal; rI++) {
-      rPag +=
-         '<button class="' +
-         (rI === state.reseller.page ? "active" : "") +
-         '" onclick="goResellerPage(' +
-         rI +
-         ')">' +
-         rI +
-         "</button>";
-   }
-   rPag +=
-      "<button " +
-      (state.reseller.page >= rTotal ? "disabled" : "") +
-      ' onclick="goResellerPage(' +
-      (state.reseller.page + 1) +
-      ')"><i class="fas fa-chevron-right"></i></button>';
+   var rPag = renderPaginationHTML(state.reseller.page, rTotal, "goResellerPage");
 
    container.innerHTML =
       '<div class="cat-toolbar">' +
