@@ -788,7 +788,8 @@ function initFirebaseListeners() {
       .onSnapshot(
          (snap) => {
             state.payrolls = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-            renderCurrentPage();
+            if (state.currentPage === "gajiKaryawan") renderPayrolls();
+            if (state.currentPage === "dashboard") renderDashboard();
          },
          (err) => console.error("Payrolls listener error:", err),
       );
@@ -805,6 +806,7 @@ function initFirebaseListeners() {
                ...d.data(),
             }));
             if (state.currentPage === "salaryProduksi") renderSalaryProduksi();
+            if (state.currentPage === "dashboard") renderDashboard();
          },
          (err) => console.error("Salary produksi listener error:", err),
       );
@@ -1174,10 +1176,23 @@ function getProductionExpenseTotal(monthPrefix) {
  * monthPrefix: "YYYY-MM". Jika kosong, hitung semua.
  */
 function getPayrollExpenseTotal(monthPrefix) {
-   const list = monthPrefix
-      ? state.payrolls.filter((p) => (p.period || "") === monthPrefix)
+   const payrollsFiltered = monthPrefix
+      ? state.payrolls.filter((p) => {
+           const date = p.period || p.paymentDate || "";
+           return date.substring(0, 7) === monthPrefix;
+        })
       : state.payrolls;
-   return list.reduce((s, p) => s + (Number(p.totalPaid) || 0), 0);
+
+   const salaryProdFiltered = monthPrefix
+      ? (state.salaryProduksi || []).filter(
+           (s) => (s.periodDate || "").substring(0, 7) === monthPrefix,
+        )
+      : (state.salaryProduksi || []);
+
+   const payrollSum = payrollsFiltered.reduce((s, p) => s + (Number(p.totalPaid) || 0), 0);
+   const salaryProdSum = salaryProdFiltered.reduce((s, sDoc) => s + (Number(sDoc.grandTotal) || 0), 0);
+
+   return payrollSum + salaryProdSum;
 }
 
 /**
@@ -4509,9 +4524,11 @@ function renderBelanjaProduksi() {
    if (week) list = list.filter((p) => p.weekKey === week);
    if (status !== "all") list = list.filter((p) => p.status === status);
 
-   const weeklyTotal = state.productionPurchases
-      .filter((p) => p.weekKey === selectedWeek)
-      .reduce((s, p) => s + (p.totalCost || 0), 0);
+   const weeklyTotal = week
+      ? state.productionPurchases
+           .filter((p) => p.weekKey === selectedWeek)
+           .reduce((s, p) => s + (p.totalCost || 0), 0)
+      : list.reduce((s, p) => s + (p.totalCost || 0), 0);
 
    const total = Math.max(1, Math.ceil(list.length / perPage));
    if (page > total) state.pp.page = 1;
@@ -4552,9 +4569,9 @@ function renderBelanjaProduksi() {
         </select>
       </div>
       <div class="responsive-action-group" style="margin-left:auto;display:flex;gap:8px;align-items:center">
-        <span style="font-size:13px;color:var(--text-muted)">Total ${weekKeyLabel(selectedWeek)}: <strong style="color:var(--text)">${fmtRp(weeklyTotal)}</strong></span>
+        <span style="font-size:13px;color:var(--text-muted)">${week ? `Total ${weekKeyLabel(selectedWeek)}` : "Total Semua Minggu"}: <strong style="color:var(--text)">${fmtRp(weeklyTotal)}</strong></span>
         <button class="btn btn-outline btn-sm" onclick="exportBelanjaProduksi()"><i class="fas fa-download"></i>Export</button>
-        <button class="btn btn-outline btn-sm" onclick="closeWeek('${selectedWeek}')"><i class="fas fa-lock"></i>Tutup Minggu</button>
+        ${week ? `<button class="btn btn-outline btn-sm" onclick="closeWeek('${selectedWeek}')"><i class="fas fa-lock"></i>Tutup Minggu</button>` : ""}
         <button class="btn btn-primary btn-sm" onclick="openAddPurchaseModal()"><i class="fas fa-plus"></i>Tambah Belanja</button>
       </div>
     </div>`;
@@ -4616,6 +4633,12 @@ window.onPPSearch = function (val) {
    state.pp.search = val;
    state.pp.page = 1;
    renderBelanjaProduksi();
+   const input = document.getElementById("ppSearch");
+   if (input) {
+      input.focus();
+      const len = input.value.length;
+      input.setSelectionRange(len, len);
+   }
 };
 window.onPPMonth = function (val) {
    state.pp.month = val;
@@ -5141,7 +5164,7 @@ function renderPayrolls() {
 
    const toolbar = `
     <div class="table-toolbar">
-      <div class="table-search"><i class="fas fa-search"></i><input type="text" class="form-input" placeholder="Cari nama karyawan..." value="${search}" oninput="onPayrollSearch(this.value)"></div>
+      <div class="table-search"><i class="fas fa-search"></i><input type="text" id="payrollSearch" class="form-input" placeholder="Cari nama karyawan..." value="${search}" oninput="onPayrollSearch(this.value)"></div>
       <div class="table-filter">
         <select class="form-input" onchange="onPayrollPeriod(this.value)">
           <option value="">Semua Periode</option>${periodOpts}
@@ -5210,6 +5233,12 @@ window.onPayrollSearch = function (val) {
    state.payroll.search = val;
    state.payroll.page = 1;
    renderPayrolls();
+   const input = document.getElementById("payrollSearch");
+   if (input) {
+      input.focus();
+      const len = input.value.length;
+      input.setSelectionRange(len, len);
+   }
 };
 window.onPayrollPeriod = function (val) {
    state.payroll.period = val;
@@ -7196,6 +7225,9 @@ function renderReports() {
       const periodDate = p.period ? `${p.period}-01` : p.paymentDate || "";
       return matchesMonthYear(periodDate, month, year);
    });
+   const rSalaryProduksi = (state.salaryProduksi || []).filter((s) =>
+      matchesMonthYear(s.periodDate, month, year),
+   );
 
    const totalRev = rSales.reduce((s, x) => s + getSaleRevenue(x), 0);
    const totalCost = rSales.reduce(
@@ -7207,10 +7239,9 @@ function renderReports() {
       (s, p) => s + (Number(p.totalCost) || 0),
       0,
    );
-   const totalPayrollExp = rPayrolls.reduce(
-      (s, p) => s + (Number(p.totalPaid) || 0),
-      0,
-   );
+   const totalPayrollExp =
+      rPayrolls.reduce((s, p) => s + (Number(p.totalPaid) || 0), 0) +
+      rSalaryProduksi.reduce((s, sDoc) => s + (Number(sDoc.grandTotal) || 0), 0);
    const totalNetProfit = totalProfit - totalProdExp - totalPayrollExp;
    const marginPct =
       totalRev > 0 ? Math.round((totalProfit / totalRev) * 100) : 0;
@@ -8394,6 +8425,12 @@ window.onResellerSearch = function (val) {
    state.reseller.search = val;
    state.reseller.page = 1;
    renderResellers();
+   const input = document.getElementById("resellerSearch");
+   if (input) {
+      input.focus();
+      const len = input.value.length;
+      input.setSelectionRange(len, len);
+   }
 };
 
 window.goResellerPage = function (p) {
