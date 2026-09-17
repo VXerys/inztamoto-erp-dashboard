@@ -516,6 +516,45 @@ select.form-input {
   appearance: none; cursor:pointer; transition: var(--transition);
 }
 .table-filter select:focus { border-color: #D97706 }
+.date-preset-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+.date-preset-filter .chart-tabs {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  height: 38px;
+  box-sizing: border-box;
+}
+.date-preset-filter .chart-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 12px;
+  border: none;
+  cursor: pointer;
+}
+.date-preset-filter input[type="date"] {
+  width: auto;
+  min-width: 130px;
+  height: 38px;
+  padding: 0 10px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--text);
+  box-sizing: border-box;
+}
+.date-preset-filter input[type="date"]:focus {
+  border-color: #D97706;
+  box-shadow: 0 0 0 3px rgba(217,119,6,.1);
+}
 .data-table { width: 100%; border-collapse: collapse; font-size: 13px }
 .data-table thead {
   background: #FAF9F6;
@@ -834,6 +873,24 @@ select.form-input {
   .table-toolbar .form-input {
     width: 100%;
     max-width: none;
+  }
+
+  .date-preset-filter {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .date-preset-filter .chart-tabs {
+    width: 100%;
+    display: flex;
+  }
+  .date-preset-filter .chart-tab {
+    flex: 1;
+    text-align: center;
+  }
+  .date-preset-filter input[type="date"] {
+    width: 100%;
   }
 
   .responsive-action-group,

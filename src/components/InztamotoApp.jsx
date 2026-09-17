@@ -804,6 +804,8 @@ export default function InztamotoApp() {
                         </button>
                      </div>
                      <div id="resellerAnalyticsContainer" style={{ display: "none", marginBottom: "18px" }}></div>
+                     {/* Daily Performance Tracking Cards */}
+                     <div className="stat-grid" id="dailySalesStats" style={{ marginBottom: "20px" }}></div>
                      <div className="card">
                         <div className="table-toolbar">
                            <div className="table-search">
@@ -830,6 +832,18 @@ export default function InztamotoApp() {
                               <select id="saleResellerFilter">
                                  <option value="all">Semua Reseller</option>
                               </select>
+                           </div>
+                           {/* Filter Harian & Quick Presets */}
+                           <div className="table-filter date-preset-filter">
+                              <div className="chart-tabs" id="saleQuickPresets">
+                                 <button type="button" className="chart-tab active" data-preset="today">Hari Ini</button>
+                                 <button type="button" className="chart-tab" data-preset="yesterday">Kemarin</button>
+                                 <button type="button" className="chart-tab" data-preset="all">Semua</button>
+                              </div>
+                              <input
+                                 type="date"
+                                 id="saleDateFilter"
+                              />
                            </div>
                            {/* Phase 6.2 — period filters (options populated by populateSalePeriodFilters()) */}
                            <div className="table-filter">
@@ -898,22 +912,30 @@ export default function InztamotoApp() {
                            </select>
                         </div>
                         <div className="table-filter">
-                           <select id="reportPeriod">
+                           <select id="reportPeriod" defaultValue="monthly">
                               <option value="daily">Harian</option>
                               <option value="weekly">Mingguan</option>
-                              <option value="monthly" defaultValue="monthly">
+                              <option value="monthly">
                                  Bulanan
                               </option>
                               <option value="yearly">Tahunan</option>
                            </select>
                         </div>
-                        {/* Phase 6.3 — period filters (options populated by populateReportPeriodFilters()) */}
-                        <div className="table-filter">
+                        {/* Period filters (options and visibility managed dynamically) */}
+                        <div className="table-filter" id="reportDateFilterGroup" style={{ display: "none" }}>
+                           <input
+                              type="date"
+                              id="reportDateFilter"
+                              className="form-input"
+                              style={{ height: "38px", width: "auto", minWidth: "135px", boxSizing: "border-box" }}
+                           />
+                        </div>
+                        <div className="table-filter" id="reportMonthFilterGroup">
                            <select id="reportMonthFilter">
                               <option value="all">Semua Bulan</option>
                            </select>
                         </div>
-                        <div className="table-filter">
+                        <div className="table-filter" id="reportYearFilterGroup">
                            <select id="reportYearFilter">
                               <option value="all">Semua Tahun</option>
                            </select>

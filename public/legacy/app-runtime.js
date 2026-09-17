@@ -175,6 +175,7 @@ const state = {
       month: "all",
       year: "all",
       resellerId: "all",
+      date: new Date().toISOString().split("T")[0],
       page: 1,
       perPage: 8,
    },
@@ -183,12 +184,12 @@ const state = {
       page: 1,
       perPage: 10,
    },
-   pp: { search: "", week: "", status: "all", month: "all", page: 1, perPage: 10 },
+   pp: { search: "", week: "", status: "all", month: "all", date: new Date().toISOString().split("T")[0], page: 1, perPage: 10 },
    payroll: { search: "", period: "", status: "all", page: 1, perPage: 10 },
    salaryProd: { search: "", month: "all", year: "all", page: 1, perPage: 8 },
    spons: { search: "", month: "all", year: "all", page: 1, perPage: 8 },
    stockHistory: { search: "", filter: "bulan_ini", page: 1, perPage: 15 },
-   report: { month: "all", year: String(new Date().getFullYear()) },
+   report: { period: "monthly", date: new Date().toISOString().split("T")[0], month: "all", year: String(new Date().getFullYear()) },
    charts: {},
    tempImageData: null,
    salesTrend: {
@@ -218,6 +219,19 @@ const state = {
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const today = new Date().toISOString().split("T")[0];
+const getYesterdayDateStr = () => {
+   const d = new Date();
+   d.setDate(d.getDate() - 1);
+   return d.toISOString().split("T")[0];
+};
+const formatDateIndo = (dateStr) => {
+   if (!dateStr || dateStr === "all") return "Semua Tanggal";
+   const parts = dateStr.split("-");
+   if (parts.length !== 3) return dateStr;
+   const months = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+   const mIdx = parseInt(parts[1], 10) - 1;
+   return `${parseInt(parts[2], 10)} ${months[mIdx] || parts[1]} ${parts[0]}`;
+};
 const fmt = (n) => (n || 0).toLocaleString("id-ID");
 const fmtRp = (n) => "Rp " + (n || 0).toLocaleString("id-ID");
 const pct = (a, b) => (b > 0 ? Math.round((a / b) * 100) : 0);
@@ -3860,6 +3874,9 @@ function renderSales() {
       list = list.filter((s) =>
          matchesMonthYear(s.date, state.sale.month, state.sale.year),
       );
+   if (state.sale.date && state.sale.date !== "all") {
+      list = list.filter((s) => s.date === state.sale.date);
+   }
    // Repopulate period dropdowns so year list stays fresh
    populateSalePeriodFilters();
    const { page, perPage } = state.sale;
@@ -3910,6 +3927,87 @@ function renderSales() {
          : "";
    $("#salePag").innerHTML = renderPaginationHTML(state.sale.page, total, "goSalePage");
    renderResellerAnalytics(list);
+   renderDailySalesStats(state.sale.date);
+   syncSaleDateFilterUI();
+}
+
+function renderDailySalesStats(dateStr) {
+   const container = $("#dailySalesStats");
+   if (!container) return;
+
+   const activeDate = dateStr !== undefined ? dateStr : state.sale.date;
+   const isAll = !activeDate || activeDate === "all";
+
+   const daySales = isAll
+      ? state.sales
+      : state.sales.filter((s) => s.date === activeDate);
+
+   const totalRevenue = daySales.reduce((acc, s) => {
+      const val = s.realRevenue !== undefined ? s.realRevenue : s.revenue || 0;
+      return acc + val;
+   }, 0);
+
+   const totalProfit = daySales.reduce((acc, s) => {
+      const val = s.realProfit !== undefined ? s.realProfit : s.profit || 0;
+      return acc + val;
+   }, 0);
+
+   const totalOrders = daySales.length;
+   const totalQty = daySales.reduce((acc, s) => acc + (s.quantity || 0), 0);
+
+   const dateLabel = isAll
+      ? "Semua Periode"
+      : activeDate === today
+        ? `Hari Ini (${formatDateIndo(today)})`
+        : activeDate === getYesterdayDateStr()
+          ? `Kemarin (${formatDateIndo(activeDate)})`
+          : formatDateIndo(activeDate);
+
+   container.innerHTML = `
+      <div class="stat-card gold">
+         <div class="sc-top">
+            <div class="sc-icon"><i class="fas fa-coins"></i></div>
+            <span class="sc-label">Pendapatan Harian</span>
+         </div>
+         <div class="sc-value">${fmtRp(totalRevenue)}</div>
+         <div class="sc-sub">${dateLabel}</div>
+      </div>
+      <div class="stat-card green">
+         <div class="sc-top">
+            <div class="sc-icon"><i class="fas fa-chart-line"></i></div>
+            <span class="sc-label">Estimasi Laba Harian</span>
+         </div>
+         <div class="sc-value">${fmtRp(totalProfit)}</div>
+         <div class="sc-sub">Margin Laba Terkalkulasi</div>
+      </div>
+      <div class="stat-card maroon">
+         <div class="sc-top">
+            <div class="sc-icon"><i class="fas fa-box-open"></i></div>
+            <span class="sc-label">Volume Terjual</span>
+         </div>
+         <div class="sc-value">${totalOrders} <span style="font-size:14px;font-weight:500;">Order</span> <small style="font-size:13px;color:var(--text-muted);">(${totalQty} pcs)</small></div>
+         <div class="sc-sub">Total Item Terjual</div>
+      </div>
+   `;
+}
+
+function syncSaleDateFilterUI() {
+   const input = $("#saleDateFilter");
+   if (input) {
+      input.value = state.sale.date && state.sale.date !== "all" ? state.sale.date : "";
+   }
+   const presets = $("#saleQuickPresets");
+   if (presets) {
+      presets.querySelectorAll(".chart-tab").forEach((btn) => {
+         const p = btn.dataset.preset;
+         const isActive =
+            (p === "today" && state.sale.date === today) ||
+            (p === "yesterday" && state.sale.date === getYesterdayDateStr()) ||
+            (p === "all" && (!state.sale.date || state.sale.date === "all"));
+         if (isActive) btn.classList.add("active");
+         else btn.classList.remove("active");
+      });
+   }
 }
 
 window.goSalePage = function (n) {
@@ -3945,6 +4043,29 @@ $("#saleChannelFilter").addEventListener("change", (e) => {
 if ($("#saleResellerFilter")) {
    $("#saleResellerFilter").addEventListener("change", (e) => {
       state.sale.resellerId = e.target.value;
+      state.sale.page = 1;
+      renderSales();
+   });
+}
+if ($("#saleDateFilter")) {
+   $("#saleDateFilter").addEventListener("change", (e) => {
+      state.sale.date = e.target.value || "all";
+      state.sale.page = 1;
+      renderSales();
+   });
+}
+if ($("#saleQuickPresets")) {
+   $("#saleQuickPresets").addEventListener("click", (e) => {
+      const btn = e.target.closest(".chart-tab");
+      if (!btn) return;
+      const preset = btn.dataset.preset;
+      if (preset === "today") {
+         state.sale.date = today;
+      } else if (preset === "yesterday") {
+         state.sale.date = getYesterdayDateStr();
+      } else if (preset === "all") {
+         state.sale.date = "all";
+      }
       state.sale.page = 1;
       renderSales();
    });
@@ -4523,6 +4644,9 @@ function renderBelanjaProduksi() {
    }
    if (week) list = list.filter((p) => p.weekKey === week);
    if (status !== "all") list = list.filter((p) => p.status === status);
+   if (state.pp.date && state.pp.date !== "all") {
+      list = list.filter((p) => p.date === state.pp.date);
+   }
 
    const weeklyTotal = week
       ? state.productionPurchases
@@ -4548,9 +4672,22 @@ function renderBelanjaProduksi() {
       .join("");
 
    // ---- Toolbar ----
+   const isTodayActive = state.pp.date === today;
+   const isYesterdayActive = state.pp.date === getYesterdayDateStr();
+   const isAllActive = !state.pp.date || state.pp.date === "all";
+   const dateInputVal = state.pp.date && state.pp.date !== "all" ? state.pp.date : "";
+
    const toolbar = `
     <div class="table-toolbar">
       <div class="table-search"><i class="fas fa-search"></i><input type="text" id="ppSearch" class="form-input" placeholder="Cari barang..." value="${search}" oninput="onPPSearch(this.value)"></div>
+      <div class="table-filter date-preset-filter">
+        <div class="chart-tabs" id="ppQuickPresets">
+          <button type="button" class="chart-tab ${isTodayActive ? "active" : ""}" onclick="onPPDatePreset('today')">Hari Ini</button>
+          <button type="button" class="chart-tab ${isYesterdayActive ? "active" : ""}" onclick="onPPDatePreset('yesterday')">Kemarin</button>
+          <button type="button" class="chart-tab ${isAllActive ? "active" : ""}" onclick="onPPDatePreset('all')">Semua</button>
+        </div>
+        <input type="date" id="ppDateFilter" value="${dateInputVal}" onchange="onPPDate(this.value)">
+      </div>
       <div class="table-filter">
         <select class="form-input" onchange="onPPMonth(this.value)">
           <option value="all" ${month === "all" ? "selected" : ""}>Semua Bulan</option>${monthOpts}
@@ -4569,7 +4706,7 @@ function renderBelanjaProduksi() {
         </select>
       </div>
       <div class="responsive-action-group" style="margin-left:auto;display:flex;gap:8px;align-items:center">
-        <span style="font-size:13px;color:var(--text-muted)">${week ? `Total ${weekKeyLabel(selectedWeek)}` : "Total Semua Minggu"}: <strong style="color:var(--text)">${fmtRp(weeklyTotal)}</strong></span>
+        <span style="font-size:13px;color:var(--text-muted)">${week ? `Total ${weekKeyLabel(selectedWeek)}` : "Total Belanja"}: <strong style="color:var(--text)">${fmtRp(weeklyTotal)}</strong></span>
         <button class="btn btn-outline btn-sm" onclick="exportBelanjaProduksi()"><i class="fas fa-download"></i>Export</button>
         ${week ? `<button class="btn btn-outline btn-sm" onclick="closeWeek('${selectedWeek}')"><i class="fas fa-lock"></i>Tutup Minggu</button>` : ""}
         <button class="btn btn-primary btn-sm" onclick="openAddPurchaseModal()"><i class="fas fa-plus"></i>Tambah Belanja</button>
@@ -4582,14 +4719,14 @@ function renderBelanjaProduksi() {
            .map((p) => {
               const isClosed = p.status === "closed";
               const statusBadgeStr = isClosed
-                 ? `<span class="badge badge-inactive">Closed</span>`
-                 : `<span class="badge badge-active">Open</span>`;
+                  ? `<span class="badge badge-inactive">Closed</span>`
+                  : `<span class="badge badge-active">Open</span>`;
               const actions = isClosed
-                 ? `<span style="font-size:12px;color:var(--text-muted)">—</span>`
-                 : `<div class="action-btns">
-               <button class="action-btn" title="Edit" onclick="editPurchase('${p.id}')"><i class="fas fa-pen"></i></button>
-               <button class="action-btn del" title="Hapus" onclick="confirmDeletePurchase('${p.id}')"><i class="fas fa-trash"></i></button>
-             </div>`;
+                  ? `<span style="font-size:12px;color:var(--text-muted)">—</span>`
+                  : `<div class="action-btns">
+                <button class="action-btn" title="Edit" onclick="editPurchase('${p.id}')"><i class="fas fa-pen"></i></button>
+                <button class="action-btn del" title="Hapus" onclick="confirmDeletePurchase('${p.id}')"><i class="fas fa-trash"></i></button>
+              </div>`;
               return `<tr>
           <td>${p.date}</td>
           <td><small style="color:var(--text-muted)">${p.weekKey || ""}</small></td>
@@ -4604,12 +4741,17 @@ function renderBelanjaProduksi() {
         </tr>`;
            })
            .join("")
-      : `<tr><td colspan="10"><div class="empty-state"><i class="fas fa-shopping-basket"></i><h4>Belum ada data belanja</h4><p>Tambahkan belanja produksi pertama</p></div></td></tr>`;
+      : `<tr><td colspan="10"><div class="empty-state"><i class="fas fa-shopping-basket"></i><h4>Belum ada data belanja</h4><p>Coba ubah tanggal filter atau tambahkan belanja produksi baru.</p></div></td></tr>`;
 
    // ---- Pagination ----
    let pag = renderPaginationHTML(state.pp.page, total, "goPPPage");
 
+   const dailyCardsHTML = renderDailyPurchasesCardsHTML(state.pp.date);
+
    container.innerHTML = `
+    <div class="stat-grid" id="dailyPurchasesStats" style="margin-bottom: 20px;">
+      ${dailyCardsHTML}
+    </div>
     <div class="card">
       ${toolbar}
       <div class="table-scroll">
@@ -4628,6 +4770,46 @@ function renderBelanjaProduksi() {
     </div>`;
 }
 
+function renderDailyPurchasesCardsHTML(dateStr) {
+   const activeDate = dateStr !== undefined ? dateStr : state.pp.date;
+   const isAll = !activeDate || activeDate === "all";
+
+   const dayPurchases = isAll
+      ? state.productionPurchases
+      : state.productionPurchases.filter((p) => p.date === activeDate);
+
+   const totalCost = dayPurchases.reduce((acc, p) => acc + (p.totalCost || 0), 0);
+   const totalItems = dayPurchases.length;
+   const totalQty = dayPurchases.reduce((acc, p) => acc + (p.quantity || 0), 0);
+
+   const dateLabel = isAll
+      ? "Semua Periode"
+      : activeDate === today
+        ? `Hari Ini (${formatDateIndo(today)})`
+        : activeDate === getYesterdayDateStr()
+          ? `Kemarin (${formatDateIndo(activeDate)})`
+          : formatDateIndo(activeDate);
+
+   return `
+      <div class="stat-card red">
+         <div class="sc-top">
+            <div class="sc-icon"><i class="fas fa-wallet"></i></div>
+            <span class="sc-label">Total Belanja Harian</span>
+         </div>
+         <div class="sc-value">${fmtRp(totalCost)}</div>
+         <div class="sc-sub">${dateLabel}</div>
+      </div>
+      <div class="stat-card gold">
+         <div class="sc-top">
+            <div class="sc-icon"><i class="fas fa-receipt"></i></div>
+            <span class="sc-label">Item Pengadaan</span>
+         </div>
+         <div class="sc-value">${totalItems} <span style="font-size:14px;font-weight:500;">Transaksi</span> <small style="font-size:13px;color:var(--text-muted);">(${fmt(totalQty)} item)</small></div>
+         <div class="sc-sub">Bahan Baku & Penunjang</div>
+      </div>
+   `;
+}
+
 // ---- Search/filter handlers ----
 window.onPPSearch = function (val) {
    state.pp.search = val;
@@ -4639,6 +4821,22 @@ window.onPPSearch = function (val) {
       const len = input.value.length;
       input.setSelectionRange(len, len);
    }
+};
+window.onPPDate = function (val) {
+   state.pp.date = val || "all";
+   state.pp.page = 1;
+   renderBelanjaProduksi();
+};
+window.onPPDatePreset = function (preset) {
+   if (preset === "today") {
+      state.pp.date = today;
+   } else if (preset === "yesterday") {
+      state.pp.date = getYesterdayDateStr();
+   } else if (preset === "all") {
+      state.pp.date = "all";
+   }
+   state.pp.page = 1;
+   renderBelanjaProduksi();
 };
 window.onPPMonth = function (val) {
    state.pp.month = val;
@@ -4692,6 +4890,11 @@ window.exportBelanjaProduksi = function () {
    if (state.pp.status && state.pp.status !== "all") {
       list = list.filter(function (p) {
          return p.status === state.pp.status;
+      });
+   }
+   if (state.pp.date && state.pp.date !== "all") {
+      list = list.filter(function (p) {
+         return p.date === state.pp.date;
       });
    }
 
@@ -4828,7 +5031,7 @@ window.exportBelanjaProduksi = function () {
    workbook.xlsx.writeBuffer().then(function (buffer) {
       var blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
       var a = document.createElement("a");
-      var dateStr = new Date().toISOString().split("T")[0].replace(/-/g, "_");
+      var dateStr = (state.pp.date && state.pp.date !== "all" ? state.pp.date : new Date().toISOString().split("T")[0]).replace(/-/g, "_");
       a.href = URL.createObjectURL(blob);
       a.download = "production_purchase_report_" + dateStr + ".xlsx";
       a.click();
@@ -7212,21 +7415,28 @@ window.doDeleteSponsorship = async function (docId) {
    ========================================================= */
 function renderReports() {
    const type = $("#reportType").value;
-   const { month, year } = state.report;
+   const period = $("#reportPeriod") ? $("#reportPeriod").value : (state.report.period || "monthly");
+   state.report.period = period;
+   const dateInput = $("#reportDateFilter");
+   if (dateInput && dateInput.value) {
+      state.report.date = dateInput.value;
+   }
+   const { month, year, date } = state.report;
 
-   // Phase 6.3 — filtered data lists for period-aware metrics
+   syncReportPeriodVisibility();
+
    const rSales = state.sales.filter((s) =>
-      matchesMonthYear(s.date, month, year),
+      filterByReportPeriod(s.date, period, month, year, date),
    );
    const rPurchases = state.productionPurchases.filter((p) =>
-      matchesMonthYear(p.date, month, year),
+      filterByReportPeriod(p.date, period, month, year, date),
    );
    const rPayrolls = state.payrolls.filter((p) => {
       const periodDate = p.period ? `${p.period}-01` : p.paymentDate || "";
-      return matchesMonthYear(periodDate, month, year);
+      return filterByReportPeriod(periodDate, period, month, year, date);
    });
    const rSalaryProduksi = (state.salaryProduksi || []).filter((s) =>
-      matchesMonthYear(s.periodDate, month, year),
+      filterByReportPeriod(s.periodDate, period, month, year, date),
    );
 
    const totalRev = rSales.reduce((s, x) => s + getSaleRevenue(x), 0);
@@ -7688,7 +7898,12 @@ function renderReportDetail(type, rSales) {
 
 $("#reportType").addEventListener("change", renderReports);
 $("#reportPeriod").addEventListener("change", renderReports);
-// Phase 6.3 — report period filter listeners
+if ($("#reportDateFilter")) {
+   $("#reportDateFilter").addEventListener("change", (e) => {
+      state.report.date = e.target.value;
+      renderReports();
+   });
+}
 $("#reportMonthFilter").addEventListener("change", (e) => {
    state.report.month = e.target.value;
    renderReports();
@@ -7699,14 +7914,25 @@ $("#reportYearFilter").addEventListener("change", (e) => {
 });
 
 $("#exportCsvBtn").addEventListener("click", () => {
-   // Phase 6.3 — export follows active state.report period filter
    const type = $("#reportType").value;
-   const { month, year } = state.report;
+   const period = $("#reportPeriod") ? $("#reportPeriod").value : (state.report.period || "monthly");
+   state.report.period = period;
+   const { month, year, date } = state.report;
    const rSales = state.sales.filter((s) =>
-      matchesMonthYear(s.date, month, year),
+      filterByReportPeriod(s.date, period, month, year, date),
    );
    const periodLabel =
-      year === "all" ? "semua" : month !== "all" ? `${year}-${month}` : year;
+      period === "daily"
+         ? `harian_${date || today}`
+         : period === "weekly"
+         ? "mingguan"
+         : period === "yearly"
+         ? (year === "all" ? "tahunan-semua" : `tahunan-${year}`)
+         : year === "all"
+         ? "semua"
+         : month !== "all"
+         ? `${year}-${month}`
+         : year;
    let csv = "\uFEFF";
    if (type === "sales") {
       csv +=
@@ -8146,6 +8372,24 @@ function matchesMonthYear(dateStr, month, year) {
    return true;
 }
 
+function filterByReportPeriod(dateStr, period, month, year, selectedDate) {
+   if (!dateStr || typeof dateStr !== "string") return false;
+   const itemDate = dateStr.substring(0, 10);
+   const curToday = new Date().toISOString().split("T")[0];
+   if (period === "daily") {
+      const target = selectedDate || state.report.date || curToday;
+      return itemDate === target;
+   }
+   if (period === "weekly") {
+      const d = new Date();
+      d.setDate(d.getDate() - 6);
+      const weekStart = d.toISOString().split("T")[0];
+      return itemDate >= weekStart && itemDate <= curToday;
+   }
+   if (period === "yearly") return year === "all" || itemDate.substring(0, 4) === year;
+   return matchesMonthYear(itemDate, month, year);
+}
+
 function populateSalePeriodFilters() {
    const monthSel = $("#saleMonthFilter");
    const yearSel = $("#saleYearFilter");
@@ -8164,8 +8408,11 @@ function populateSalePeriodFilters() {
    yearSel.innerHTML = `<option value="all" ${state.sale.year === "all" ? "selected" : ""}>Semua Tahun</option>${yearOpts}`;
 }
 
-// Phase 6.3 — populate Laporan period filter dropdowns
 function populateReportPeriodFilters() {
+   const periodSel = $("#reportPeriod");
+   if (periodSel && state.report.period) {
+      periodSel.value = state.report.period;
+   }
    const monthSel = $("#reportMonthFilter");
    const yearSel = $("#reportYearFilter");
    if (!monthSel || !yearSel) return;
@@ -8197,6 +8444,39 @@ function populateReportPeriodFilters() {
       )
       .join("");
    yearSel.innerHTML = `<option value="all" ${state.report.year === "all" ? "selected" : ""}>Semua Tahun</option>${yearOpts}`;
+   syncReportPeriodVisibility();
+}
+
+function syncReportPeriodVisibility() {
+   const period = state.report.period || ($("#reportPeriod") ? $("#reportPeriod").value : "monthly");
+   const dateGroup = $("#reportDateFilterGroup");
+   const monthGroup = $("#reportMonthFilterGroup");
+   const yearGroup = $("#reportYearFilterGroup");
+   const dateInput = $("#reportDateFilter");
+
+   if (dateInput) {
+      if (!dateInput.value || (state.report.date && dateInput.value !== state.report.date)) {
+         dateInput.value = state.report.date || today;
+      }
+   }
+
+   if (period === "daily") {
+      if (dateGroup) dateGroup.style.display = "block";
+      if (monthGroup) monthGroup.style.display = "none";
+      if (yearGroup) yearGroup.style.display = "none";
+   } else if (period === "weekly") {
+      if (dateGroup) dateGroup.style.display = "none";
+      if (monthGroup) monthGroup.style.display = "none";
+      if (yearGroup) yearGroup.style.display = "none";
+   } else if (period === "monthly") {
+      if (dateGroup) dateGroup.style.display = "none";
+      if (monthGroup) monthGroup.style.display = "block";
+      if (yearGroup) yearGroup.style.display = "block";
+   } else if (period === "yearly") {
+      if (dateGroup) dateGroup.style.display = "none";
+      if (monthGroup) monthGroup.style.display = "none";
+      if (yearGroup) yearGroup.style.display = "block";
+   }
 }
 
 /* =========================================================
@@ -8650,6 +8930,9 @@ window.exportResellerSales = function () {
          matchesMonthYear(s.date, state.sale.month, state.sale.year)
       );
    }
+   if (state.sale.date && state.sale.date !== "all") {
+      list = list.filter((s) => s.date === state.sale.date);
+   }
 
    if (list.length === 0) {
       toast("Tidak ada data penjualan untuk di-export", "warning");
@@ -8893,7 +9176,7 @@ window.exportResellerSales = function () {
    var yyyy = String(new Date().getFullYear());
    var mm = String(new Date().getMonth() + 1).padStart(2, "0");
    var dd = String(new Date().getDate()).padStart(2, "0");
-   var dateStr = yyyy + "_" + mm + "_" + dd;
+   var dateStr = state.sale.date && state.sale.date !== "all" ? state.sale.date.replace(/-/g, "_") : yyyy + "_" + mm + "_" + dd;
 
    workbook.xlsx.writeBuffer().then(function (buffer) {
       var blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });

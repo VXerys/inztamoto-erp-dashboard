@@ -6,6 +6,8 @@ prompts/
 # env
 .env.local
 .env*.local
+env.download
+*.env*
 
 # Next.js
 .next/
